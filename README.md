@@ -1,4 +1,4 @@
-# Subsea Cable Runtime — Carousel POC
+# Subsea Cable Runtime — a Vessel POC
 
 > **Status:** proof of concept. This is an independent implementation
 > experiment for the [Subsea Cable](https://github.com/on-the-ground/subsea_cable_language)
@@ -7,8 +7,12 @@
 > below that is not normative in the language repository is a named, versioned
 > POC profile choice.
 
-It implements the Carousel deduction engine and a Runtime that coordinates it
-with the Host, keeping `@policy` as opaque metadata. Language-level questions
+This repository is one **Vessel**: the complete Consumer Runtime that
+[SCP-0002](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/0002-carousel-runtime-boundaries.md)
+names. It carries the **Carousel**, the only deduction engine, together with the
+Codebase, the Outcome & Value Store, the Scheduler, and the Host port, and keeps
+`@policy` as opaque metadata. Vessel names that whole; no package or interface
+here is a second deduction engine. Language-level questions
 found here are recorded as ADRs in [docs/decisions](docs/decisions/README.md)
 and as Subsea Cable Proposals in the language repository, indexed by its
 `implementation/CAROUSEL_POC_FINDINGS.md`.
@@ -44,11 +48,36 @@ the submodule moves to the merge commit and the two rows become one.
 | `expr/`, `value/` | Value model and value-expression evaluation (Subsea rules + Host primitives) |
 | `carousel/` | **The Carousel**: demand-time deduction, atomic commits, frontier, lineage, Touchdown window |
 | `host/` | Host Port, the `poc-rational/0` primitive profile, and a scripted recording Host |
-| `runtime/` | **The Runtime**: Scheduler, scope tracking, Outcome & Value Store, policy engine, reactor, trace |
+| `runtime/` | Vessel control plane: run lifecycle, Scheduler, scope tracking, Outcome & Value Store, policy carrier, reactor, trace. It holds no deduction logic |
 | `cmd/subc-poc/` | CLI to check and run programs |
 | `examples/` | Runnable programs |
 | `conformancetest/` | Runs the pinned language's `conformance/cases.tsv` |
 | `language/` | Pinned language repository (submodule) |
+
+## Roles
+
+SCP-0002 fixes who owns what. This repository maps those boxes onto packages:
+
+| SCP-0002 box | Here | Owns |
+|---|---|---|
+| Vessel (the whole Consumer Runtime) | this repository, entered through `cmd/subc-poc` | assembling the parts, the run lifecycle, and everything exposed outward |
+| Frontend | `syntax/`, `sema/` | decoding, parsing, validation, Unit preparation |
+| Codebase + Deduction Ledger | `codebase/` | artifacts, the `Name/Arity` index, revisions, deduction records |
+| Carousel | `carousel/` | demand-time alias resolution, reduction, atomic commits, frontier, lineage, Touchdown publication |
+| Outcome & Value Store | `runtime/` | attempt outcomes and scope outputs; Carousel only reads through a one-method port |
+| Scheduler | `runtime/` | demand, eligibility, attempts, cancellation, the opaque `@policy` carrier |
+| Host Port | `host/` | primitive semantics, function-leaf evaluation, Anchor invocation |
+
+Two names in that table are historical and will move: the `runtime/` package is
+the Vessel's control plane rather than the Vessel itself, and the Scheduler
+inside it is not yet its own package. Renaming this repository, its module, and
+its binary to `vessel`, and splitting the Scheduler out, is planned as a
+separate change with no behavior difference. Until then, read `runtime/` as
+"control plane", never as "the whole runtime".
+
+The boundary is enforced by tests, not only by prose: the Carousel value port is
+read-only, no Carousel or Codebase method accepts an outcome, and a live leaf
+outcome never reaches the ledger or the artifacts.
 
 ## Quick start
 
@@ -78,7 +107,7 @@ CLI flags:
 ## How a run works
 
 ```text
-run(program)                         Runtime.Start: commit unit, prepare Root, demand Root
+run(program)                         Vessel start: commit unit, prepare Root, demand Root
   │
   ├─ pump ──────────────────────────  Scheduler issues explicit demand
   │    └─ Carousel.Replenish          deduce demanded occurrences, then prefetch
@@ -122,7 +151,7 @@ deterministic.
   The window counts every published leaf without an applied acknowledgement,
   including ineligible and withheld ones. A full window stops only speculative
   deduction; demanded work is always deduced.
-- Before virtual time advances, the Runtime repeats demand, deduction, and
+- Before virtual time advances, the Vessel repeats demand, deduction, and
   dispatch until nothing changes, so the window is refilled behind in-flight
   work.
 - A failure found by speculative prefetch never ends a run by itself; it

@@ -28,7 +28,7 @@
 | Resource budgets | Carousel 7 | Only a run step budget (`StepBudgetExceeded`) | `runtime.Config.MaxSteps` |
 | Default prefetch | Carousel 8 | `0` in the API and the CLI | — |
 | Completion | Carousel 9 | A run with no timeline event and no dispatchable work ends as `RunStuck` with blocking reasons. `PrefetchExhausted` only means no undeduced candidate remains. | — |
-| Vessel naming | Carousel 10, R8 | Not used in code | — |
+| Vessel naming | Carousel 10, R8 — **decided** (SCP-0002) | Vessel names this whole repository's runtime, and the README records that mapping. No package, type, or API is called Vessel, and the Carousel is the only deduction engine. The `runtime/` package is the Vessel's control plane; renaming the repository, module, and binary to `vessel` is planned separately | — |
 | Stored-Goal invocation | R1 | Not offered. A run always starts from the source unit's prepared Root. | — |
 | Eager calls in arguments | R3 (Draft SCP) | Rejected (`UnsupportedByProfile`) before a run starts, and again if a lazily resolved artifact contains one | [0006](decisions/0006-argument-position-call-staging.md) |
 | Composite reattempt | R4 | Not offered. The Scheduler test double `ReattemptAfterFailure` creates later attempts of leaf evaluation instances only | `runtime.SchedulerHooks` |
