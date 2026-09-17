@@ -46,6 +46,10 @@ func TestRoutingRules(t *testing.T) {
 		{"forward reference", "R = [] -> A[]\nA = [] -> $a\nR[]", ""},
 		{"continuation", "A = [x] ->\n  $a(\n    x +\n    1\n  )\nA[1]", ""},
 		{"number key identity", "m = {1: \"a\", 1.0: \"b\"}\nR = [] -> $b(m)\nR[]", "DuplicateMapKey"},
+		{"bare uppercase value in composition is still a Goal", "X = 1\nA = [] -> $a\nR = [] -> [A, X]\nR[]", "GoalNotFound"},
+		{"bare entry in a lookup map is a value", "m = {a: A}\nA = [] -> $a\nR = [k] -> m[k]\nR[\"a\"]", "InvalidStructuralContext"},
+		{"nested serial gets no upstream value", "A = [] -> $a\nB = [x] -> $b(x)\nR = [] -> [A, [B, A]]\nR[]", "ArityMismatch"},
+		{"nested serial first stage is /0", "A = [] -> $a\nB = [] -> $b\nC = [x] -> $c(x)\nR = [] -> [A, [B, C]]\nR[]", ""},
 		{"bool vs string key", "m = {true: 1, \"true\": 2}\nR = [] -> $b(m)\nR[]", ""},
 	}
 	for _, c := range cases {

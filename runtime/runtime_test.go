@@ -10,7 +10,6 @@ import (
 	"github.com/on-the-ground/subsea_cable_runtime/codebase"
 	"github.com/on-the-ground/subsea_cable_runtime/host"
 	"github.com/on-the-ground/subsea_cable_runtime/runtime"
-	"github.com/on-the-ground/subsea_cable_runtime/runtime/policyexamples"
 	"github.com/on-the-ground/subsea_cable_runtime/sema"
 	"github.com/on-the-ground/subsea_cable_runtime/value"
 )
@@ -92,10 +91,15 @@ func TestManualDemandDrivesTheRun(t *testing.T) {
 	}
 }
 
+// reattempt returns a Scheduler test double that creates up to n further
+// attempts of each failed evaluation instance.
+func reattempt(n int) runtime.SchedulerHooks {
+	return runtime.SchedulerHooks{ReattemptAfterFailure: func(_ string, failed int) bool { return failed <= n }}
+}
+
 // §16.3 A leaf reattempt never produces a second deduction record.
 func TestReattemptDoesNotRededuce(t *testing.T) {
-	x := start(t, "Patch = [d] -> @retry(2) $editFiles(d)\nPatch[\"diag\"]",
-		runtime.Config{Policies: policyexamples.Registry()})
+	x := start(t, "Patch = [d] -> $editFiles(d)\nPatch[\"diag\"]", runtime.Config{Hooks: reattempt(2)})
 	x.h.FailNext("editFiles", 2)
 	res := x.finish()
 	if res.Status != host.Succeeded {
@@ -109,36 +113,51 @@ func TestReattemptDoesNotRededuce(t *testing.T) {
 	}
 }
 
-func TestRetryExhaustionFailsTheRun(t *testing.T) {
-	x := start(t, "Patch = [d] -> @retry(1) $editFiles(d)\nPatch[1]", runtime.Config{Policies: policyexamples.Registry()})
+func TestReattemptExhaustionFailsTheRun(t *testing.T) {
+	x := start(t, "Patch = [d] -> $editFiles(d)\nPatch[1]", runtime.Config{Hooks: reattempt(1)})
 	x.h.FailNext("editFiles", 5)
 	res := x.finish()
-	if res.Status != host.Failed || res.Diag.Kind != "InjectedFailure" || res.Diag.Phase != "host" {
-		t.Fatalf("%+v", res)
+	if res.Status != host.Failed || res.Diag.Kind != "InjectedFailure" || res.Diag.Phase != "host" || len(x.h.Calls) != 2 {
+		t.Fatalf("%+v calls=%d", res, len(x.h.Calls))
 	}
 }
 
-// A retry on a Goal occurrence does not reach its descendant leaf.
+// A policy authored on a Goal occurrence is not inherited by its leaf: an
+// interpreter that supports only leaf targets rejects it before the leaf runs.
 func TestPolicyOnGoalOccurrenceIsNotInherited(t *testing.T) {
-	x := start(t, "Patch = [d] -> $editFiles(d)\nRoot = [] -> @retry Patch[1]\nRoot[]",
-		runtime.Config{Policies: policyexamples.Registry()})
+	leafOnly := &recorder{id: "leafOnly", targets: []carousel.Kind{carousel.KindAnchor}}
+	x := start(t, "Patch = [d] -> $editFiles(d)\nRoot = [] -> @leafOnly Patch[1]\nRoot[]",
+		runtime.Config{Policies: runtime.NewRegistry().Register(leafOnly)})
 	res := x.finish()
 	if res.Status != host.Failed || res.Diag.Kind != "UnsupportedPolicyTarget" {
-		t.Fatalf("expected UnsupportedPolicyTarget for @retry on a Goal occurrence, got %+v", res.Diag)
+		t.Fatalf("expected UnsupportedPolicyTarget, got %+v", res.Diag)
 	}
-	if len(x.h.Calls) != 0 {
-		t.Fatal("the leaf must not run after its enclosing policy was rejected")
+	if len(x.h.Calls) != 0 || len(leafOnly.events) != 0 {
+		t.Fatal("the leaf ran or the interpreter observed it")
 	}
 }
 
+// recorder is a test-only carrier probe: it records the events delivered to
+// its target and returns no actions. It defines no policy semantics.
 type recorder struct {
-	events []runtime.PolicyEventKind
+	id      string
+	targets []carousel.Kind
+	events  []runtime.PolicyEventKind
 }
 
-func (r *recorder) ID() string      { return "observe" }
+func (r *recorder) ID() string {
+	if r.id == "" {
+		return "observe"
+	}
+	return r.id
+}
 func (r *recorder) Version() string { return "test" }
 func (r *recorder) Targets() []carousel.Kind {
-	return []carousel.Kind{carousel.KindParallel, carousel.KindAnchor, carousel.KindGoal}
+	if r.targets != nil {
+		return r.targets
+	}
+	return []carousel.Kind{carousel.KindGoal, carousel.KindArrow, carousel.KindSerial, carousel.KindParallel,
+		carousel.KindMap, carousel.KindFunction, carousel.KindAnchor}
 }
 func (r *recorder) Validate([]value.Value) error     { return nil }
 func (r *recorder) Attach(runtime.PolicyContext) any { return nil }
@@ -169,15 +188,17 @@ func TestCompositePolicyObservesOnlyItsOwnScope(t *testing.T) {
 	}
 }
 
-// §16.5 CancelScope leaves undeduced descendants undeduced.
-func TestTimeoutCancelsWithoutTouchingTheLedger(t *testing.T) {
-	src := "Slow = [] -> $slow\nNext = [x] -> $next(x)\nRoot = [] -> @timeout(3) [Slow[], Next]\nRoot[]"
-	x := start(t, src, runtime.Config{Policies: policyexamples.Registry()})
+// §16.5 Cancelling a scope leaves undeduced descendants undeduced. The
+// cancellation is a Scheduler operation, not a policy.
+func TestCancelScopeKeepsUndeducedWorkUndeduced(t *testing.T) {
+	src := "Slow = [] -> $slow\nNext = [x] -> $next(x)\nRoot = [] -> [Slow[], Next]\nRoot[]"
+	x := start(t, src, runtime.Config{})
 	x.h.SetTicks("slow", 10)
 	x.run.Advance()
 	ledgerAtStart := len(x.cb.Ledger())
-	res := x.finish()
-	if res.Status != host.Failed || res.Diag.Kind != "PolicyTimeout" || res.Time != 3 {
+	x.run.CancelScope("r.d", "operator request")
+	res := x.run.Result()
+	if res == nil || res.Status != host.Cancelled || res.Diag.Kind != "ScopeCancelled" {
 		t.Fatalf("%+v", res)
 	}
 	next := x.run.Carousel().Occurrence("r.d.1")
@@ -293,22 +314,6 @@ func TestCancellationPreservesLedger(t *testing.T) {
 	}
 }
 
-// Owner decision R10: the consumption point changes prefetch timing. The POC
-// exposes both points only to make that difference observable.
-func TestConsumptionPointChangesDeductionTiming(t *testing.T) {
-	src := "S = [n] -> $work(n)\nRoot = [] -> [S[1], S[2], S[3], S[4]]\nRoot[]"
-	atZero := func(cp runtime.ConsumePoint) int {
-		x := start(t, src, runtime.Config{Prefetch: 1, Concurrency: 1, ConsumeAt: cp})
-		x.h.SetTicks("work", 5)
-		x.run.Advance()
-		return len(x.cb.Ledger())
-	}
-	dispatch, completion := atZero(runtime.ConsumeAtDispatch), atZero(runtime.ConsumeAtCompletion)
-	if dispatch <= completion {
-		t.Fatalf("expected more early deductions when consuming at dispatch: dispatch=%d completion=%d", dispatch, completion)
-	}
-}
-
 func TestUnknownPolicyIsNeverIgnored(t *testing.T) {
 	x := start(t, "Root = [] -> @retry $a\nRoot[]", runtime.Config{})
 	res := x.finish()
@@ -318,12 +323,15 @@ func TestUnknownPolicyIsNeverIgnored(t *testing.T) {
 }
 
 func TestStackedPoliciesNeedADeclaredPairing(t *testing.T) {
-	src := "Root = [] -> @retry @timeout(5) $a\nRoot[]"
-	x := start(t, src, runtime.Config{Policies: policyexamples.Registry()})
-	if res := x.finish(); res.Diag == nil || res.Diag.Kind != "PolicyConflict" {
+	src := "Root = [] -> @first @second $a\nRoot[]"
+	reg := func() *runtime.Registry {
+		return runtime.NewRegistry().Register(&recorder{id: "first"}).Register(&recorder{id: "second"})
+	}
+	x := start(t, src, runtime.Config{Policies: reg()})
+	if res := x.finish(); res.Diag == nil || res.Diag.Kind != "PolicyConflict" || len(x.h.Calls) != 0 {
 		t.Fatalf("%+v", res.Diag)
 	}
-	y := start(t, src, runtime.Config{Policies: policyexamples.Registry().AllowPair("retry", "timeout")})
+	y := start(t, src, runtime.Config{Policies: reg().AllowPair("first", "second")})
 	if res := y.finish(); res.Status != host.Succeeded {
 		t.Fatalf("%+v", res.Diag)
 	}
@@ -331,15 +339,23 @@ func TestStackedPoliciesNeedADeclaredPairing(t *testing.T) {
 
 var policyText = regexp.MustCompile(`@[A-Za-z_][A-Za-z0-9_]*(\([^)]*\))? ?`)
 
-// Policy erasure: for every occurrence actually deduced in both runs, the
-// policy-erased structural reduction result is the same.
+const erasureSource = `issue = "T-1"
+Fix = [issue] -> [
+    [] -> @observe { code: Read[issue], logs: Read[issue] },
+    [{code, logs}] -> @observe Diagnose[code, logs],
+    Patch
+]
+Read = [x] -> @observe $read(x)
+Diagnose = [c, l] -> $diagnose(c, l)
+Patch = [d] -> @observe $edit(d)
+Fix[issue]`
+
+// Policy erasure (§16 scenario 11): for corresponding occurrences that select
+// the same artifact with the same arguments, the policy-erased run commits the
+// same structural reduction result. The carrier probe defines no semantics.
 func TestPolicyErasureKeepsReductionResults(t *testing.T) {
-	src, err := os.ReadFile("../examples/fix.subc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	erased := policyText.ReplaceAllString(string(src), "")
-	a := start(t, string(src), runtime.Config{Policies: policyexamples.Registry(), Prefetch: 1})
+	erased := policyText.ReplaceAllString(erasureSource, "")
+	a := start(t, erasureSource, runtime.Config{Policies: runtime.NewRegistry().Register(&recorder{}), Prefetch: 1})
 	b := start(t, erased, runtime.Config{Prefetch: 1})
 	if ra, rb := a.finish(), b.finish(); ra.Status != host.Succeeded || rb.Status != host.Succeeded {
 		t.Fatalf("%v / %v", ra.Diag, rb.Diag)
@@ -351,16 +367,16 @@ func TestPolicyErasureKeepsReductionResults(t *testing.T) {
 	compared := 0
 	for _, r := range a.cb.Ledger() {
 		other, ok := results[r.Occurrence]
-		if !ok {
-			continue
+		if !ok || r.GoalNodeID != other.GoalNodeID || strings.Join(r.Arguments, ",") != strings.Join(other.Arguments, ",") {
+			continue // not a corresponding occurrence with the same artifact structure and arguments
 		}
 		compared++
-		if policyText.ReplaceAllString(r.Result, "") != other.Result || r.GoalNodeID != other.GoalNodeID {
-			t.Fatalf("%s: %q/%s vs %q/%s", r.Occurrence, r.Result, r.GoalNodeID, other.Result, other.GoalNodeID)
+		if policyText.ReplaceAllString(r.Result, "") != other.Result {
+			t.Fatalf("%s: %q vs %q", r.Occurrence, r.Result, other.Result)
 		}
 	}
-	if compared == 0 {
-		t.Fatal("nothing compared")
+	if compared < 4 {
+		t.Fatalf("compared only %d occurrences", compared)
 	}
 }
 
@@ -369,7 +385,7 @@ func TestFixExampleEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	x := start(t, string(src), runtime.Config{Policies: policyexamples.Registry(), Prefetch: 1})
+	x := start(t, string(src), runtime.Config{Prefetch: 1, Hooks: reattempt(2)})
 	x.h.FailNext("editFiles", 1)
 	res := x.finish()
 	if res.Status != host.Succeeded || !strings.HasPrefix(res.Output.Value.AsString(), "verified editFiles(") {

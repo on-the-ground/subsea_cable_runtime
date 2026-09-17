@@ -79,6 +79,13 @@ func (f *fixture) step() []carousel.Event {
 	return ev
 }
 
+func (f *fixture) consume(id string) carousel.AckResult {
+	f.t.Helper()
+	o := f.occ(id)
+	res, _ := f.car.ConsumeTouchdown(id, f.car.EvaluationInstanceID(o), "attempt-"+id)
+	return res
+}
+
 func (f *fixture) occ(id string) *carousel.Occurrence {
 	f.t.Helper()
 	o := f.car.Occurrence(id)
@@ -205,28 +212,45 @@ func TestFailedDeductionIsAtomic(t *testing.T) {
 	}
 }
 
-func TestDynamicKeyNotFoundIsADeductionError(t *testing.T) {
+// Structure-valued lookup maps are blocked pending a language decision
+// (Draft SCP: structure-valued lookup maps; runtime ADR 0003).
+func TestStructureLookupIsBlocked(t *testing.T) {
 	cb := codebase.New()
-	src := "routes = {a: A[], b: B[]}\nA = [] -> $a\nB = [] -> $b\nPick = [k] -> routes[k]\nRoot = [] -> Pick[\"c\"]\nRoot[]"
+	src := "routes = {a: A[], b: B[]}\nA = [] -> $a\nB = [] -> $b\nPick = [k] -> routes[k]\nRoot = [] -> Pick[\"a\"]\nRoot[]"
+	u := unit(t, cb, src)
+	if len(u.Unsupported) == 0 {
+		t.Fatal("validation must flag structure-valued lookup as unsupported by this profile")
+	}
 	f := open(t, cb, src, 0)
 	f.car.Demand("r.d")
 	f.step()
-	if o := f.occ("r.d"); o.State != carousel.Failed || o.Failure.Kind != "KeyNotFound" {
-		t.Fatalf("expected KeyNotFound, got %+v", o.Failure)
+	if o := f.occ("r.d"); o.State != carousel.Failed || o.Failure.Kind != "UnsupportedByProfile" {
+		t.Fatalf("got %+v", o.Failure)
 	}
 }
 
-func TestLookupSelectsOnlyOneEntry(t *testing.T) {
-	cb := codebase.New()
-	src := "routes = {a: A[], _: B[]}\nA = [] -> $a\nB = [] -> $b\nPick = [k] -> routes[k]\nRoot = [] -> Pick[\"zzz\"]\nRoot[]"
-	f := open(t, cb, src, 0)
+// Value-position lookup in ordinary maps remains supported.
+func TestValueLookupStillWorks(t *testing.T) {
+	src := "m = {a: 1, _: 2}\nS = [n] -> $s(n)\nRoot = [k] -> S[m[k]]\nRoot[\"zzz\"]"
+	f := open(t, codebase.New(), src, 0)
 	f.car.Demand("r.d")
 	f.step()
-	if got := f.occ("r.d.d").Name; got != "B" {
-		t.Fatalf("wildcard entry not selected, got %s", got)
+	if got := f.record("r.d").Arguments[0]; got != "n1:2" {
+		t.Fatalf("wildcard value not selected: %s", got)
 	}
-	if strings.Contains(f.record("r.d").Result, "A/0") {
-		t.Fatal("unselected entry joined the structure")
+}
+
+// F7: explicit brackets never receive an implicit argument, so a nested
+// serial's first bare stage is /0 even when the upstream stage exports a value.
+func TestNestedSerialReceivesNoUpstreamValue(t *testing.T) {
+	src := "A = [] -> $a\nB = [] -> $b\nC = [x] -> $c(x)\nRoot = [] -> [A, [B, C]]\nRoot[]"
+	f := open(t, codebase.New(), src, 0)
+	b := f.occ("r.d.1.0")
+	if b.Name != "B" || b.Arity != 0 || b.Input != "" {
+		t.Fatalf("nested first stage: %+v", b)
+	}
+	if c := f.occ("r.d.1.1"); c.Arity != 1 || c.Input != "r.d.1.0" {
+		t.Fatalf("second nested stage must receive B's value: %+v", c)
 	}
 }
 
@@ -272,7 +296,7 @@ func TestSlidingReplenishment(t *testing.T) {
 		t.Fatalf("window=%d, want 2", f.car.Window())
 	}
 	before := len(f.cb.Ledger())
-	f.car.Consume("r.d.0.d")
+	f.consume("r.d.0.d")
 	f.step()
 	if f.car.Window() != 2 || len(f.cb.Ledger()) != before+1 || f.occ("r.d.2").State != carousel.Committed {
 		t.Fatalf("expected exactly one refill deduction, window=%d ledger=%d", f.car.Window(), len(f.cb.Ledger()))
@@ -371,7 +395,7 @@ func TestAliasTimingRelativeToPrefetch(t *testing.T) {
 		t.Fatal("prefetch after the alias move must observe the new hash")
 	}
 	store(t, cb, "B = [] -> $b3\nB[]", "B", 0)
-	f.car.Consume("r.d.0.d")
+	f.consume("r.d.0.d")
 	f.step()
 	if f.record("r.d.0").ArtifactHash != b2.Hash {
 		t.Fatal("an already prefetched occurrence changed its hash")
@@ -492,5 +516,135 @@ func TestEagerCallIsRefusedByProfile(t *testing.T) {
 	f.step()
 	if o := f.occ("r.d"); o.State != carousel.Failed || o.Failure.Kind != "UnsupportedByProfile" {
 		t.Fatalf("got %+v", o.Failure)
+	}
+}
+
+// ---- SCP-0001 acknowledgement scenarios ----
+
+// Scenario 19: a full window never blocks explicit demand.
+func TestDemandIsDeducedOverAFullWindow(t *testing.T) {
+	src := "S = [n] -> $work(n)\nRoot = [] -> {S[1], S[2]}\nRoot[]"
+	f := open(t, codebase.New(), src, 1)
+	if f.car.Window() != 1 || f.occ("r.d.1").State != carousel.Undeduced {
+		t.Fatal("prefetch should stop at the target")
+	}
+	f.car.Demand("r.d.1")
+	ev := f.step()
+	if f.car.Window() != 2 || f.occ("r.d.1").State != carousel.Committed {
+		t.Fatalf("demanded occurrence not deduced, window=%d", f.car.Window())
+	}
+	if count(ev, carousel.DemandedTouchdownOverTarget) != 1 || count(ev, carousel.AtomicPrefetchOvershoot) != 0 {
+		t.Fatalf("over-target demand must be reported separately: %+v", ev)
+	}
+}
+
+// Scenario 19 (partial window): the over-target condition uses the count
+// after the demanded deduction, not the count before it.
+func TestDemandOverTargetFromPartialWindow(t *testing.T) {
+	src := "P = [] -> {$a(), $b()}\nRoot = [] -> {$w(), P[]}\nRoot[]"
+	f := open(t, codebase.New(), src, 1)
+	if f.car.Window() != 1 || f.occ("r.d.1").State != carousel.Undeduced {
+		t.Fatalf("setup: window=%d", f.car.Window())
+	}
+	f.car.SetPrefetch(2) // target 2, one leaf buffered
+	f.car.Demand("r.d.1")
+	ev := f.step()
+	if f.car.Window() != 3 {
+		t.Fatalf("window=%d, want 3", f.car.Window())
+	}
+	var over *carousel.Event
+	for i := range ev {
+		if ev[i].Kind == carousel.DemandedTouchdownOverTarget {
+			over = &ev[i]
+		}
+	}
+	if over == nil || over.Occ != "r.d.1" || over.Window != 3 || over.Count != 2 {
+		t.Fatalf("missing or wrong DemandedTouchdownOverTarget: %+v", ev)
+	}
+	if count(ev, carousel.AtomicPrefetchOvershoot) != 0 {
+		t.Fatalf("a demanded deduction is not a prefetch overshoot: %+v", ev)
+	}
+}
+
+// A demanded deduction that stays within the target reports nothing.
+func TestDemandWithinTargetIsNotOverTarget(t *testing.T) {
+	src := "P = [] -> {$a(), $b()}\nRoot = [] -> {$w(), P[]}\nRoot[]"
+	f := open(t, codebase.New(), src, 1)
+	f.car.SetPrefetch(3)
+	f.car.Demand("r.d.1")
+	ev := f.step()
+	if f.car.Window() != 3 || count(ev, carousel.DemandedTouchdownOverTarget) != 0 {
+		t.Fatalf("window=%d events=%+v", f.car.Window(), ev)
+	}
+}
+
+// Scenarios 20 and 23: consume is applied once; a replay by the same attempt
+// re-confirms it, and a competing attempt is not authorized.
+func TestConsumeIsAppliedOnce(t *testing.T) {
+	f := open(t, codebase.New(), pipeline, 1)
+	o := f.occ("r.d.0.d")
+	inst := f.car.EvaluationInstanceID(o)
+	if res, _ := f.car.ConsumeTouchdown(o.ID, inst, "a1"); res != carousel.AckConsumed {
+		t.Fatalf("first consume: %s", res)
+	}
+	f.car.Drain()
+	// Replay by the same attempt re-confirms its authorization.
+	res, by := f.car.ConsumeTouchdown(o.ID, inst, "a1")
+	if res != carousel.AckConsumedReplay || by != "a1" || !res.Authorizes() {
+		t.Fatalf("replayed consume: %s/%s", res, by)
+	}
+	// A different attempt lost the first dispatch and is not authorized.
+	res, by = f.car.ConsumeTouchdown(o.ID, inst, "a2")
+	if res != carousel.AckAlreadyConsumed || by != "a1" || res.Authorizes() {
+		t.Fatalf("competing consume: %s/%s", res, by)
+	}
+	if res, _ := f.car.ConsumeTouchdown(o.ID, inst, ""); res != carousel.AckInvalidAttempt || res.Authorizes() {
+		t.Fatalf("empty attempt: %s", res)
+	}
+	if len(f.car.Drain()) != 0 {
+		t.Fatal("a repeated acknowledgement emitted events")
+	}
+	if f.car.InWindow(o.ID) {
+		t.Fatal("a consumed Touchdown re-entered the window")
+	}
+	if res, _ := f.car.ConsumeTouchdown(o.ID, "wrong", "a3"); res != carousel.AckMismatch {
+		t.Fatalf("mismatched instance: %s", res)
+	}
+	if res, _ := f.car.ConsumeTouchdown("r.nope", inst, "a4"); res != carousel.AckUnknown {
+		t.Fatalf("unknown occurrence: %s", res)
+	}
+}
+
+// Scenarios 21 and 22: discard before dispatch, and both race orders.
+func TestConsumeDiscardRace(t *testing.T) {
+	f := open(t, codebase.New(), pipeline, 2)
+	first, second := f.occ("r.d.0.d"), f.occ("r.d.1.d")
+
+	// Discard wins.
+	if res, _ := f.car.DiscardTouchdown(first.ID, "cancelled"); res != carousel.AckDiscarded {
+		t.Fatalf("discard: %s", res)
+	}
+	if res, _ := f.car.ConsumeTouchdown(first.ID, f.car.EvaluationInstanceID(first), "late"); res != carousel.AckDiscarded {
+		t.Fatalf("consume after discard: %s", res)
+	}
+	if res, _ := f.car.DiscardTouchdown(first.ID, "again"); res != carousel.AckAlreadyDiscarded {
+		t.Fatalf("repeat discard: %s", res)
+	}
+
+	// Consume wins.
+	if res, _ := f.car.ConsumeTouchdown(second.ID, f.car.EvaluationInstanceID(second), "a1"); res != carousel.AckConsumed {
+		t.Fatalf("consume: %s", res)
+	}
+	if res, by := f.car.DiscardTouchdown(second.ID, "cancelled"); res != carousel.AckAlreadyConsumed || by != "a1" {
+		t.Fatalf("discard after consume: %s", res)
+	}
+	ev := f.car.Drain()
+	if count(ev, carousel.TouchdownDiscarded) != 1 || count(ev, carousel.TouchdownConsumed) != 1 {
+		t.Fatalf("each Touchdown must leave the window exactly once: %+v", ev)
+	}
+	for _, e := range ev {
+		if e.Kind == carousel.TouchdownConsumed && (e.Attempt != "a1" || e.EvaluationInstance == "" || e.Window != 0) {
+			t.Fatalf("consume event fields: %+v", e)
+		}
 	}
 }

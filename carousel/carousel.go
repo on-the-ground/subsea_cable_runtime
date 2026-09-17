@@ -131,6 +131,10 @@ const (
 	PrefetchBlocked         EventKind = "PrefetchBlocked"
 	PrefetchExhausted       EventKind = "PrefetchExhausted"
 	AtomicPrefetchOvershoot EventKind = "AtomicPrefetchOvershoot"
+	// DemandedTouchdownOverTarget: an explicitly demanded deduction published
+	// at least one leaf and the window count after it exceeds the target
+	// (SCP-0001).
+	DemandedTouchdownOverTarget EventKind = "DemandedTouchdownOverTarget"
 )
 
 // Event is one Carousel observation.
@@ -141,6 +145,11 @@ type Event struct {
 	Diag   *diag.Diagnostic
 	Reason string
 	Count  int
+	// Window is the window count after the event (Touchdown events).
+	Window int
+	// Touchdown acknowledgement identity (SCP-0001).
+	EvaluationInstance string
+	Attempt            string
 }
 
 // ValueSource exposes resolved occurrence outputs (owned by the Runtime).
@@ -165,6 +174,7 @@ type Carousel struct {
 	seq        int
 	demanded   map[string]bool
 	window     map[string]bool
+	touchdowns map[string]*touchdown
 	prefetch   int
 	events     []Event
 	blocked    map[string]string
@@ -174,7 +184,7 @@ type Carousel struct {
 // New creates a Carousel.
 func New(cfg Config) *Carousel {
 	return &Carousel{cfg: cfg, occs: map[string]*Occurrence{}, demanded: map[string]bool{},
-		window: map[string]bool{}, prefetch: cfg.Prefetch, blocked: map[string]string{}}
+		window: map[string]bool{}, touchdowns: map[string]*touchdown{}, prefetch: cfg.Prefetch, blocked: map[string]string{}}
 }
 
 func (c *Carousel) emit(e Event) { c.events = append(c.events, e) }
@@ -210,7 +220,9 @@ func (c *Carousel) register(o *Occurrence) {
 	c.emit(Event{Kind: OccurrenceExposed, Occ: o.ID})
 	if o.IsLeaf() {
 		c.window[o.ID] = true
-		c.emit(Event{Kind: TouchdownPublished, Occ: o.ID})
+		c.touchdowns[o.ID] = &touchdown{}
+		c.emit(Event{Kind: TouchdownPublished, Occ: o.ID, Window: c.Window(),
+			EvaluationInstance: c.EvaluationInstanceID(o)})
 	}
 }
 
@@ -303,23 +315,91 @@ func (c *Carousel) Window() int { return len(c.window) }
 // InWindow reports whether a Touchdown is still buffered.
 func (c *Carousel) InWindow(id string) bool { return c.window[id] }
 
-// Consume acknowledges consumption of a buffered Touchdown.
-func (c *Carousel) Consume(id string) {
-	if c.window[id] {
-		delete(c.window, id)
-		c.lastPrefix = ""
-		c.emit(Event{Kind: TouchdownConsumed, Occ: id})
-	}
+// AckResult is the outcome of a Touchdown acknowledgement (SCP-0001).
+type AckResult string
+
+const (
+	AckConsumed AckResult = "consumed"
+	// AckConsumedReplay: the same attempt already consumed this Touchdown.
+	// It re-confirms that attempt's authorization and emits no event.
+	AckConsumedReplay AckResult = "consumed-replayed"
+	// AckAlreadyConsumed: a different attempt consumed it first. It
+	// authorizes nothing.
+	AckAlreadyConsumed  AckResult = "already-consumed"
+	AckInvalidAttempt   AckResult = "invalid-attempt"
+	AckDiscarded        AckResult = "discarded"
+	AckAlreadyDiscarded AckResult = "already-discarded"
+	AckMismatch         AckResult = "mismatch"
+	AckUnknown          AckResult = "unknown"
+)
+
+type touchdownState int
+
+const (
+	tdBuffered touchdownState = iota
+	tdConsumed
+	tdDiscarded
+)
+
+type touchdown struct {
+	state      touchdownState
+	consumedBy string // attempt that consumed it, when state == tdConsumed
 }
 
-// Discard removes a Touchdown that will never be consumed (for example a
-// cancelled leaf) from the window.
-func (c *Carousel) Discard(id, reason string) {
-	if c.window[id] {
-		delete(c.window, id)
-		c.lastPrefix = ""
-		c.emit(Event{Kind: TouchdownDiscarded, Occ: id, Reason: reason})
+// Authorizes reports whether an acknowledgement result lets the Scheduler
+// invoke the Host for the attempt that issued it.
+func (a AckResult) Authorizes() bool { return a == AckConsumed || a == AckConsumedReplay }
+
+// EvaluationInstanceID derives the evaluation-instance identity of a grounded
+// leaf: run, occurrence, and its resolved argument tuple.
+func (c *Carousel) EvaluationInstanceID(o *Occurrence) string {
+	return fmt.Sprintf("%s/%s/%s", c.cfg.RunID, o.ID, value.Digest(o.Args))
+}
+
+// ConsumeTouchdown applies the Scheduler's first-dispatch acknowledgement
+// atomically. Only AckConsumed and AckConsumedReplay (see Authorizes) permit
+// invoking the Host. The second return value is the attempt that consumed the
+// Touchdown, when there is one.
+func (c *Carousel) ConsumeTouchdown(occ, evaluationInstance, attempt string) (AckResult, string) {
+	o, td := c.occs[occ], c.touchdowns[occ]
+	switch {
+	case attempt == "":
+		return AckInvalidAttempt, ""
+	case o == nil || td == nil:
+		return AckUnknown, ""
+	case evaluationInstance != c.EvaluationInstanceID(o):
+		return AckMismatch, ""
+	case td.state == tdDiscarded:
+		return AckDiscarded, ""
+	case td.state == tdConsumed && td.consumedBy == attempt:
+		return AckConsumedReplay, attempt
+	case td.state == tdConsumed:
+		return AckAlreadyConsumed, td.consumedBy
 	}
+	td.state, td.consumedBy = tdConsumed, attempt
+	delete(c.window, occ)
+	c.lastPrefix = ""
+	c.emit(Event{Kind: TouchdownConsumed, Occ: occ, Window: c.Window(), EvaluationInstance: evaluationInstance, Attempt: attempt})
+	return AckConsumed, attempt
+}
+
+// DiscardTouchdown applies the Scheduler's acknowledgement that a buffered
+// Touchdown will never be attempted.
+func (c *Carousel) DiscardTouchdown(occ, reason string) (AckResult, string) {
+	o, td := c.occs[occ], c.touchdowns[occ]
+	switch {
+	case o == nil || td == nil:
+		return AckUnknown, ""
+	case td.state == tdDiscarded:
+		return AckAlreadyDiscarded, ""
+	case td.state == tdConsumed:
+		return AckAlreadyConsumed, td.consumedBy
+	}
+	td.state = tdDiscarded
+	delete(c.window, occ)
+	c.lastPrefix = ""
+	c.emit(Event{Kind: TouchdownDiscarded, Occ: occ, Reason: reason, Window: c.Window(), EvaluationInstance: c.EvaluationInstanceID(o)})
+	return AckDiscarded, ""
 }
 
 // blockReason returns why an undeduced occurrence cannot deduce now.
@@ -545,8 +625,15 @@ func (c *Carousel) deduce(o *Occurrence, cause string) bool {
 		}
 	}
 	c.emit(Event{Kind: DeductionCommitted, Occ: o.ID, Record: &committed, Reason: cause})
+	leaves := 0
 	for _, s := range st.occs {
 		c.register(s)
+		if s.IsLeaf() {
+			leaves++
+		}
+	}
+	if cause == "demand" && leaves > 0 && c.Window() > c.prefetch {
+		c.emit(Event{Kind: DemandedTouchdownOverTarget, Occ: o.ID, Count: c.prefetch, Window: c.Window()})
 	}
 	return true
 }
@@ -679,27 +766,8 @@ func (c *Carousel) expand(st *staging, x syntax.Expr, env expr.Env, in, id, pare
 				}
 			}
 		case n.Suffix == syntax.BracketSuffix:
-			if len(n.Args) != 1 {
-				return nil, diag.New("InvalidStructuralContext", diag.Deduction, diag.At(n.Span), "map lookup takes one key")
-			}
-			ev := c.evaluator()
-			key, err := ev.Eval(n.Args[0], env)
-			if err != nil {
-				return nil, err
-			}
-			entry, err := ev.LookupEntry(n, env, key)
-			if err != nil {
-				return nil, err
-			}
-			if entry.Thunk == nil {
-				return nil, diag.New("InvalidStructuralContext", diag.Deduction, diag.At(n.Span), "%s[...] selected a value, not Goal structure", n.Ident)
-			}
-			occ, err = c.expand(st, entry.Thunk, entry.ThunkEnv, in, id, parent, lineage, art)
-			if err != nil {
-				return nil, err
-			}
-			occ.Policies = append(refs, occ.Policies...)
-			return occ, nil
+			return nil, diag.New("UnsupportedByProfile", diag.Profile, diag.At(n.Span),
+				"structure-valued lookup %s[...] is blocked pending a language decision (runtime ADR 0003)", n.Ident)
 		default:
 			return nil, diag.New("InvalidStructuralContext", diag.Deduction, diag.At(n.Span), "%s is not Goal structure", n.Ident)
 		}

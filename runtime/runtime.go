@@ -27,16 +27,6 @@ import (
 // semantics.
 const SchedulerProfile = "poc-baseline/0"
 
-// ConsumePoint selects when a Touchdown leaves the window. The portable
-// choice is Owner decision R10 (Carousel decision 6); this knob only lets the
-// POC show the difference.
-type ConsumePoint string
-
-const (
-	ConsumeAtDispatch   ConsumePoint = "dispatch"
-	ConsumeAtCompletion ConsumePoint = "completion"
-)
-
 // DemandMode selects how the baseline Scheduler issues demand.
 type DemandMode string
 
@@ -55,9 +45,9 @@ type Config struct {
 	RunID       string
 	Prefetch    int
 	Concurrency int
-	ConsumeAt   ConsumePoint
 	Demand      DemandMode
 	Policies    *Registry
+	Hooks       SchedulerHooks
 	Host        host.Host
 	Codebase    *codebase.Codebase
 	MaxSteps    int
@@ -66,9 +56,6 @@ type Config struct {
 func (c *Config) defaults() {
 	if c.Concurrency <= 0 {
 		c.Concurrency = 4
-	}
-	if c.ConsumeAt == "" {
-		c.ConsumeAt = ConsumeAtDispatch
 	}
 	if c.Demand == "" {
 		c.Demand = DemandReady
@@ -82,6 +69,17 @@ func (c *Config) defaults() {
 	if c.MaxSteps <= 0 {
 		c.MaxSteps = 100000
 	}
+}
+
+// SchedulerHooks are baseline-Scheduler test doubles. They exercise the
+// Carousel/Scheduler boundary without any concrete @policy semantics.
+type SchedulerHooks struct {
+	// WithholdFirstDispatch returns how many ticks to withhold the first
+	// attempt of a grounded leaf (0: dispatch normally). Asked once per leaf.
+	WithholdFirstDispatch func(occurrence string) int
+	// ReattemptAfterFailure decides whether the Scheduler creates another
+	// attempt of a failed evaluation instance. The baseline never does.
+	ReattemptAfterFailure func(occurrence string, failedAttempt int) bool
 }
 
 // ScopeState is the runtime state of an exposed occurrence.
@@ -122,6 +120,7 @@ type Scope struct {
 	notBefore   int
 	policies    []*boundPolicy
 	opened      bool
+	withheld    bool
 	// deferred holds a deduction failure found by speculative prefetch. It is
 	// surfaced only when the Scheduler would demand the occurrence, so that
 	// prefetch does not change which outcomes a run observes.
@@ -228,8 +227,8 @@ func Start(cfg Config, unit *sema.Unit) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.trace.add(r.now, "RunRequested", root.ID, fmt.Sprintf("root=%s prefetch=%d scheduler=%s consumeAt=%s demand=%s primitives=%s",
-		root.Label(), cfg.Prefetch, SchedulerProfile, cfg.ConsumeAt, cfg.Demand, cfg.Host.Primitives().Profile()))
+	r.trace.add(r.now, "RunRequested", root.ID, fmt.Sprintf("root=%s prefetch=%d scheduler=%s consumeAt=dispatch demand=%s primitives=%s",
+		root.Label(), cfg.Prefetch, SchedulerProfile, cfg.Demand, cfg.Host.Primitives().Profile()))
 	r.handle(r.car.Drain())
 	r.demand(root.ID)
 	return r, nil
@@ -275,6 +274,20 @@ func (r *Run) demand(id string) carousel.DemandResult {
 
 // SetPrefetch reconfigures the Touchdown window target.
 func (r *Run) SetPrefetch(n int) { r.car.SetPrefetch(n) }
+
+// CancelScope is the Scheduler operation that cancels one exposed scope: its
+// in-flight attempts are cancelled, undeduced occurrences under it are
+// withdrawn, and never-attempted Touchdowns are discarded.
+func (r *Run) CancelScope(id, reason string) {
+	if r.result != nil {
+		return
+	}
+	s := r.scopes[id]
+	if s == nil {
+		return
+	}
+	r.settle(s, ScopeCancelled, value.None, diag.New("ScopeCancelled", diag.Policy, nil, "%s", reason), "scheduler")
+}
 
 // Cancel cancels the whole run.
 func (r *Run) Cancel(reason string) {
@@ -446,6 +459,24 @@ func (r *Run) handle(evs []carousel.Event) {
 		detail := e.Reason
 		if e.Count != 0 {
 			detail = strings.TrimSpace(fmt.Sprintf("%s count=%d", detail, e.Count))
+		}
+		switch e.Kind {
+		case carousel.TouchdownPublished, carousel.TouchdownConsumed, carousel.TouchdownDiscarded:
+			detail = strings.TrimSpace(fmt.Sprintf("%s instance=%s", detail, e.EvaluationInstance))
+			if e.Attempt != "" {
+				detail += " attempt=" + e.Attempt
+			}
+			detail += fmt.Sprintf(" window=%d", e.Window)
+			window := e.Window
+			r.trace.addEvent(TraceEvent{Time: r.now, Kind: string(e.Kind), RunID: r.cfg.RunID, Occ: e.Occ,
+				EvaluationInstanceID: e.EvaluationInstance, AttemptID: e.Attempt, Reason: e.Reason,
+				WindowCount: &window, Detail: detail})
+			continue
+		case carousel.DemandedTouchdownOverTarget:
+			window, target := e.Window, e.Count
+			r.trace.addEvent(TraceEvent{Time: r.now, Kind: string(e.Kind), RunID: r.cfg.RunID, Occ: e.Occ,
+				WindowCount: &window, Target: &target, Detail: fmt.Sprintf("target=%d window=%d", target, window)})
+			continue
 		}
 		switch e.Kind {
 		case carousel.OccurrenceExposed:
@@ -652,6 +683,15 @@ func (r *Run) dispatch() {
 		if len(r.inflight) >= r.cfg.Concurrency {
 			continue
 		}
+		if s.Attempts == 0 && !s.withheld && r.cfg.Hooks.WithholdFirstDispatch != nil {
+			s.withheld = true
+			if ticks := r.cfg.Hooks.WithholdFirstDispatch(o.ID); ticks > 0 {
+				s.notBefore = r.now + ticks
+				r.push(&timelineItem{at: s.notBefore, kind: "backoff", scope: s.ID})
+				r.trace.add(r.now, "DispatchWithheld", s.ID, fmt.Sprintf("until=%d", s.notBefore))
+				continue
+			}
+		}
 		if r.apply(s, r.notify(s, PolicyEvent{Kind: BeforeAttempt, Attempt: s.Attempts + 1})) {
 			continue
 		}
@@ -666,16 +706,36 @@ func (r *Run) dispatch() {
 }
 
 func (r *Run) start(s *Scope, o *carousel.Occurrence) {
-	s.Attempts++
-	at := &attempt{id: fmt.Sprintf("%s/%s#%d", r.cfg.RunID, o.ID, s.Attempts), scope: s.ID, no: s.Attempts}
+	no := s.Attempts + 1
+	at := &attempt{id: fmt.Sprintf("%s/%s#%d", r.cfg.RunID, o.ID, no), scope: s.ID, no: no}
+	if no == 1 {
+		// SCP-0001: the first dispatch creates the attempt record, then
+		// issues one consume acknowledgement; only Consumed (or a replay of
+		// this same attempt's consume) lets the Host be invoked. The attempt
+		// record below still guarantees one Host call per attempt. Later
+		// attempts never consume again.
+		res, by := r.car.ConsumeTouchdown(o.ID, r.car.EvaluationInstanceID(o), at.id)
+		r.handle(r.car.Drain())
+		if !res.Authorizes() {
+			detail := fmt.Sprintf("attempt=%s consume=%s", at.id, res)
+			if by != "" {
+				detail += " consumedBy=" + by
+			}
+			r.trace.addEvent(TraceEvent{Time: r.now, Kind: "AttemptAborted", RunID: r.cfg.RunID, Occ: o.ID,
+				AttemptID: at.id, Reason: string(res), Detail: detail})
+			if !s.State.terminal() {
+				d := diag.New("TouchdownAcknowledgementRejected", diag.Policy, nil, "consume acknowledgement returned %s", res)
+				d.Occurrence = o.ID
+				r.settle(s, ScopeFailed, value.None, d, "boundary")
+			}
+			return
+		}
+	}
+	s.Attempts = no
 	r.inflight[at.id] = at
 	s.Leaf = LeafInFlight
 	ctx := host.LeafContext{RunID: r.cfg.RunID, Occurrence: o.ID, Artifact: o.Artifact, Leaf: o.Leaf,
 		Lineages: []string{o.Lineage}, AttemptID: at.id, AttemptNo: at.no, ArgsDigest: value.Digest(o.Args)}
-	if r.cfg.ConsumeAt == ConsumeAtDispatch {
-		r.car.Consume(o.ID)
-		r.handle(r.car.Drain())
-	}
 	r.trace.add(r.now, "EvaluationStarted", o.ID, fmt.Sprintf("attempt=%s leaf=%s", at.id, o.Label()))
 	var out host.Outcome
 	if o.Kind == carousel.KindFunction {
@@ -744,6 +804,11 @@ func (r *Run) deliver(it *timelineItem) {
 				return
 			}
 		}
+		if out.Status == host.Failed && r.cfg.Hooks.ReattemptAfterFailure != nil && r.cfg.Hooks.ReattemptAfterFailure(s.ID, at.no) {
+			s.Leaf = LeafWaiting
+			r.trace.add(r.now, "ReattemptScheduled", s.ID, fmt.Sprintf("next=%d by=scheduler", s.Attempts+1))
+			return
+		}
 		if r.apply(s, acts) {
 			return
 		}
@@ -774,11 +839,9 @@ func (r *Run) settle(s *Scope, st ScopeState, out value.Output, d *diag.Diagnost
 	o := r.car.Occurrence(s.ID)
 	s.State, s.Output, s.Diag = st, out, d
 	if o.IsLeaf() {
-		if st == ScopeSatisfied {
-			r.car.Consume(o.ID)
-		} else {
-			r.car.Discard(o.ID, string(st))
-		}
+		// A dispatched leaf was consumed already; a leaf settled before its
+		// first attempt (for example, cancelled) is discarded instead.
+		r.car.DiscardTouchdown(o.ID, string(st))
 		r.handle(r.car.Drain())
 	}
 	if o.Deducible() && r.car.Occurrence(o.ID).State == carousel.Undeduced {
@@ -837,7 +900,7 @@ func (r *Run) cancelSubtree(o *carousel.Occurrence) {
 				r.notify(cs, PolicyEvent{Kind: CancelRequested})
 				cs.State = ScopeCancelled
 				if c.IsLeaf() {
-					r.car.Discard(cid, "cancelled")
+					r.car.DiscardTouchdown(cid, "cancelled")
 					r.handle(r.car.Drain())
 				}
 				r.trace.add(r.now, "ScopeOutcome", cid, "Cancelled rule=ancestor")
