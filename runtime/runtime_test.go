@@ -293,22 +293,6 @@ func TestCancellationPreservesLedger(t *testing.T) {
 	}
 }
 
-// Owner decision R10: the consumption point changes prefetch timing. The POC
-// exposes both points only to make that difference observable.
-func TestConsumptionPointChangesDeductionTiming(t *testing.T) {
-	src := "S = [n] -> $work(n)\nRoot = [] -> [S[1], S[2], S[3], S[4]]\nRoot[]"
-	atZero := func(cp runtime.ConsumePoint) int {
-		x := start(t, src, runtime.Config{Prefetch: 1, Concurrency: 1, ConsumeAt: cp})
-		x.h.SetTicks("work", 5)
-		x.run.Advance()
-		return len(x.cb.Ledger())
-	}
-	dispatch, completion := atZero(runtime.ConsumeAtDispatch), atZero(runtime.ConsumeAtCompletion)
-	if dispatch <= completion {
-		t.Fatalf("expected more early deductions when consuming at dispatch: dispatch=%d completion=%d", dispatch, completion)
-	}
-}
-
 func TestUnknownPolicyIsNeverIgnored(t *testing.T) {
 	x := start(t, "Root = [] -> @retry $a\nRoot[]", runtime.Config{})
 	res := x.finish()

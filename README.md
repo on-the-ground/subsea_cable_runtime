@@ -66,7 +66,6 @@ CLI flags:
 |---|---|
 | `--prefetch N` | additional Touchdowns to keep ahead of evaluation |
 | `--concurrency N` | maximum in-flight attempts |
-| `--consume-at dispatch\|completion` | POC knob for Owner decision R10 |
 | `--demand ready\|manual` | baseline Scheduler demand mode |
 | `--example-policies` | register the illustrative `@retry` / `@timeout` interpreters |
 | `--fail leaf=N` | make the next N direct attempts of a leaf fail |
@@ -112,6 +111,9 @@ deterministic.
 - Nested Anchor calls in function leaves are traced through a gateway and are
   not occurrences.
 - The Carousel never calls the Host's function or Anchor capabilities.
+- A Touchdown is consumed when its first attempt is dispatched (Owner decision
+  R10). The window counts every published, unconsumed grounded leaf, including
+  ineligible and held ones, and a reattempt never re-enters it.
 - Before virtual time advances, the Runtime repeats demand, deduction, and
   dispatch until nothing changes, so the window is refilled behind in-flight
   work.

@@ -77,7 +77,6 @@ func run(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	prefetch := fs.Int("prefetch", 0, "additional Touchdowns to keep ahead of evaluation")
 	conc := fs.Int("concurrency", 4, "maximum in-flight attempts")
-	consume := fs.String("consume-at", "dispatch", "POC knob for Owner decision R10: dispatch | completion")
 	demand := fs.String("demand", "ready", "baseline Scheduler demand mode: ready | manual")
 	examples := fs.Bool("example-policies", false, "register the ILLUSTRATIVE @retry/@timeout interpreters")
 	jsonl := fs.Bool("jsonl", false, "print the trace as JSON lines")
@@ -99,7 +98,7 @@ func run(args []string) {
 	for k, v := range ticks {
 		h.SetTicks(k, v)
 	}
-	cfg := runtime.Config{Prefetch: *prefetch, Concurrency: *conc, ConsumeAt: runtime.ConsumePoint(*consume),
+	cfg := runtime.Config{Prefetch: *prefetch, Concurrency: *conc,
 		Demand: runtime.DemandMode(*demand), Host: h, Codebase: cb}
 	if *examples {
 		cfg.Policies = policyexamples.Registry()

@@ -10,55 +10,40 @@ import (
 	"github.com/on-the-ground/subsea_cable_runtime/sema"
 )
 
-// Review #2: on the ordinary Step/RunToCompletion path, the window is refilled
-// before time advances to a completion.
-//
-// With consumption at dispatch, the requested two Touchdowns are buffered
-// behind the in-flight leaf, which is the Carousel plan's objective. With
-// consumption at completion, the in-flight leaf still occupies the window, so
-// only one additional Touchdown is buffered. That difference is exactly why the
-// consumption point is Owner decision R10.
+// Review #2 and Carousel scenario 15: on the ordinary Step/RunToCompletion
+// path, the window is refilled before time advances, and because a Touchdown is
+// consumed at dispatch (R10), N Touchdowns are buffered behind the in-flight
+// leaf.
 func TestPrefetchWindowIsRefilledBehindInFlightWork(t *testing.T) {
 	src := "S = [n] -> $work(n)\nRoot = [] -> [S[1], S[2], S[3], S[4], S[5]]\nRoot[]"
-	for _, cp := range []runtime.ConsumePoint{runtime.ConsumeAtDispatch, runtime.ConsumeAtCompletion} {
-		t.Run(string(cp), func(t *testing.T) {
-			x := start(t, src, runtime.Config{Prefetch: 2, Concurrency: 1, ConsumeAt: cp})
-			x.h.SetTicks("work", 5)
-			res := x.finish()
-			if res.Status != host.Succeeded {
-				t.Fatalf("%+v", res.Diag)
-			}
-			window, inflight, checked := 0, 0, 0
-			for _, e := range x.run.Trace().Events {
-				switch e.Kind {
-				case "TouchdownPublished":
-					window++
-				case "TouchdownConsumed", "TouchdownDiscarded":
-					window--
-				case "EvaluationStarted":
-					inflight++
-				case "EvaluationSucceeded", "EvaluationFailed":
-					// Only completions whose successors still have work to
-					// buffer can be checked: at least 2 steps must remain.
-					if checked < 2 {
-						want := 2 // buffered behind the in-flight leaf
-						buffered := window
-						if cp == runtime.ConsumeAtCompletion {
-							buffered-- // the in-flight leaf is still counted in the window
-							want = 1
-						}
-						if inflight != 1 || buffered != want {
-							t.Fatalf("t=%d: inflight=%d buffered=%d, want 1 in flight and %d buffered", e.Time, inflight, buffered, want)
-						}
-						checked++
-					}
-					inflight--
+	x := start(t, src, runtime.Config{Prefetch: 2, Concurrency: 1})
+	x.h.SetTicks("work", 5)
+	res := x.finish()
+	if res.Status != host.Succeeded {
+		t.Fatalf("%+v", res.Diag)
+	}
+	window, inflight, checked := 0, 0, 0
+	for _, e := range x.run.Trace().Events {
+		switch e.Kind {
+		case "TouchdownPublished":
+			window++
+		case "TouchdownConsumed", "TouchdownDiscarded":
+			window--
+		case "EvaluationStarted":
+			inflight++
+		case "EvaluationSucceeded", "EvaluationFailed":
+			// The first two completions still have at least two later steps.
+			if checked < 2 {
+				if inflight != 1 || window != 2 {
+					t.Fatalf("t=%d: inflight=%d window=%d, want 1 in flight and 2 buffered", e.Time, inflight, window)
 				}
+				checked++
 			}
-			if checked != 2 {
-				t.Fatalf("checked %d completions", checked)
-			}
-		})
+			inflight--
+		}
+	}
+	if checked != 2 {
+		t.Fatalf("checked %d completions", checked)
 	}
 }
 

@@ -1,9 +1,11 @@
 # POC Profile Choices
 
-> **Status:** POC-only. These are reversible implementation-profile choices
-> made so the proof of concept can run. None of them is language semantics,
-> and none of them answers an Owner decision. Each one is named and shown in
-> the trace (`RunRequested`) or in the code where it applies.
+> **Status:** POC-only. Rows marked **decided** follow owner decisions recorded
+> in the language repository's `implementation/CAROUSEL_ENGINE_PLAN.md`
+> ("Recorded decisions"). Every other row is a reversible implementation-profile
+> choice made so the proof of concept can run; it is not language semantics and
+> does not answer an Owner decision. Each choice is named and shown in the trace
+> (`RunRequested`) or in the code where it applies.
 
 ## Profile identifiers
 
@@ -20,10 +22,10 @@
 |---|---|---|---|
 | Prefetch scope | Carousel 1 | One target per run | — |
 | Demand cardinality | Carousel 2, R2 | `--demand ready` (default): the baseline Scheduler explicitly demands every exposed occurrence whose serial predecessors (and its ancestors' predecessors) are satisfied. `--demand manual`: only the Root is demanded; the caller demands the rest. The Carousel never infers demand. All demand goes through one Runtime path; `Carousel.Demand` reports the occurrence state (`accepted`, `already-committed`, `failed`, `withdrawn`, ...). | `runtime.Config.Demand` |
-| Window counting | Carousel 3, known issue 5 | Counts published, unconsumed leaf occurrences, including ones the Scheduler still considers ineligible | — |
+| Window counting | Carousel 3 — **decided** | Counts every published, unconsumed grounded leaf, including ones the Scheduler considers ineligible or holds; the target is compared with that count directly | — |
 | Prefetch traversal | Carousel 4 | Exposure order: the first undeduced, undemanded, unblocked occurrence | `carousel.Replenish` |
 | Reconfiguration | Carousel 5 | `Run.SetPrefetch` at any time; affects later passes only | — |
-| Consumption point | Carousel 6, R10 | `--consume-at dispatch` (default) or `completion`. A cancelled or failed leaf is discarded from the window with `TouchdownDiscarded`. | `runtime.Config.ConsumeAt` |
+| Consumption point | Carousel 6, R10 — **decided** | A Touchdown is consumed when its first attempt is dispatched. Selection and `BeforeAttempt` (including `Hold`) do not consume it; reattempts never re-enter the window. A leaf settled before its first attempt leaves with `TouchdownDiscarded`. | — |
 | Resource budgets | Carousel 7 | Only a run step budget (`StepBudgetExceeded`) | `runtime.Config.MaxSteps` |
 | Default prefetch | Carousel 8 | `0` in the API and the CLI | — |
 | Completion | Carousel 9 | A run with no timeline event and no dispatchable work ends as `RunStuck` with blocking reasons. `PrefetchExhausted` only means no undeduced candidate remains. | — |
@@ -60,10 +62,8 @@ not because of the speculative failure (Carousel plan scenario 10).
 
 **Stabilization before time advances.** Each reactor step repeats demand,
 deduction, and dispatch until a pass changes nothing, and only then delivers the
-next completion or timer. With `--consume-at dispatch`, the requested Touchdowns
-are therefore buffered behind in-flight work. With `--consume-at completion`, an
-in-flight leaf still occupies the window, so one fewer Touchdown is buffered
-behind it; this observable difference is the substance of R10.
+next completion or timer. Because consumption happens at dispatch, the
+requested Touchdowns are buffered behind in-flight work.
 
 **Run identity.** `Runtime.Start` reserves a run ID in the Codebase (generated
 when not given; duplicates are refused). Deduction records carry it and are

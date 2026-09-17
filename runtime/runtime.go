@@ -27,16 +27,6 @@ import (
 // semantics.
 const SchedulerProfile = "poc-baseline/0"
 
-// ConsumePoint selects when a Touchdown leaves the window. The portable
-// choice is Owner decision R10 (Carousel decision 6); this knob only lets the
-// POC show the difference.
-type ConsumePoint string
-
-const (
-	ConsumeAtDispatch   ConsumePoint = "dispatch"
-	ConsumeAtCompletion ConsumePoint = "completion"
-)
-
 // DemandMode selects how the baseline Scheduler issues demand.
 type DemandMode string
 
@@ -55,7 +45,6 @@ type Config struct {
 	RunID       string
 	Prefetch    int
 	Concurrency int
-	ConsumeAt   ConsumePoint
 	Demand      DemandMode
 	Policies    *Registry
 	Host        host.Host
@@ -66,9 +55,6 @@ type Config struct {
 func (c *Config) defaults() {
 	if c.Concurrency <= 0 {
 		c.Concurrency = 4
-	}
-	if c.ConsumeAt == "" {
-		c.ConsumeAt = ConsumeAtDispatch
 	}
 	if c.Demand == "" {
 		c.Demand = DemandReady
@@ -228,8 +214,8 @@ func Start(cfg Config, unit *sema.Unit) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.trace.add(r.now, "RunRequested", root.ID, fmt.Sprintf("root=%s prefetch=%d scheduler=%s consumeAt=%s demand=%s primitives=%s",
-		root.Label(), cfg.Prefetch, SchedulerProfile, cfg.ConsumeAt, cfg.Demand, cfg.Host.Primitives().Profile()))
+	r.trace.add(r.now, "RunRequested", root.ID, fmt.Sprintf("root=%s prefetch=%d scheduler=%s consumeAt=dispatch demand=%s primitives=%s",
+		root.Label(), cfg.Prefetch, SchedulerProfile, cfg.Demand, cfg.Host.Primitives().Profile()))
 	r.handle(r.car.Drain())
 	r.demand(root.ID)
 	return r, nil
@@ -672,7 +658,11 @@ func (r *Run) start(s *Scope, o *carousel.Occurrence) {
 	s.Leaf = LeafInFlight
 	ctx := host.LeafContext{RunID: r.cfg.RunID, Occurrence: o.ID, Artifact: o.Artifact, Leaf: o.Leaf,
 		Lineages: []string{o.Lineage}, AttemptID: at.id, AttemptNo: at.no, ArgsDigest: value.Digest(o.Args)}
-	if r.cfg.ConsumeAt == ConsumeAtDispatch {
+	if s.Attempts == 1 {
+		// Owner decision R10 / Carousel decision 6: a Touchdown is consumed
+		// when its first attempt is dispatched to the Host. Selection and
+		// BeforeAttempt policy do not consume it, and reattempts never
+		// re-enter the window or consume it again.
 		r.car.Consume(o.ID)
 		r.handle(r.car.Drain())
 	}
@@ -774,11 +764,9 @@ func (r *Run) settle(s *Scope, st ScopeState, out value.Output, d *diag.Diagnost
 	o := r.car.Occurrence(s.ID)
 	s.State, s.Output, s.Diag = st, out, d
 	if o.IsLeaf() {
-		if st == ScopeSatisfied {
-			r.car.Consume(o.ID)
-		} else {
-			r.car.Discard(o.ID, string(st))
-		}
+		// A dispatched leaf was consumed already; a leaf settled before its
+		// first attempt (for example, cancelled) is discarded instead.
+		r.car.Discard(o.ID, string(st))
 		r.handle(r.car.Drain())
 	}
 	if o.Deducible() && r.car.Occurrence(o.ID).State == carousel.Undeduced {
