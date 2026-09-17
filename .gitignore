@@ -1,0 +1,4 @@
+# Build and editor residue
+/subc-poc
+*.test
+*.out

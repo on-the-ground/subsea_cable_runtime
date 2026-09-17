@@ -1,0 +1,3 @@
+[submodule "language"]
+	path = language
+	url = https://github.com/on-the-ground/subsea_cable_language.git

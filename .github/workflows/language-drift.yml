@@ -1,0 +1,48 @@
+name: Language drift
+
+# Runs the suite against the language repository's main branch, so grammar,
+# conformance, or contract changes are reported even when this repository does
+# not change. A failure here means the pin and the parser need an update.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Language repository ref to test against
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: go test (language ${{ inputs.ref || 'main' }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Check out language
+        uses: actions/checkout@v5
+        with:
+          repository: on-the-ground/subsea_cable_language
+          ref: ${{ inputs.ref || 'main' }}
+          path: language-head
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Report grammar changes since the pin
+        run: |
+          pinned=$(git ls-tree HEAD language | awk '{print $3}')
+          echo "pinned language revision: $pinned"
+          git -C language-head fetch --quiet origin "$pinned" || true
+          git -C language-head diff --stat "$pinned" HEAD -- SubseaCable.g4 SubseaCable.ebnf conformance README.md implementation/RUNTIME_CONTRACT.md || true
+
+      - name: Test against language head
+        env:
+          SUBSEA_LANGUAGE_DIR: ${{ github.workspace }}/language-head
+        run: go test ./...

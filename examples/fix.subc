@@ -1,0 +1,20 @@
+// The FOR_AGENTS.md "fix the failing test" plan, adapted for the POC.
+// @retry is attached directly to the Anchor leaf: a policy on the Patch Goal
+// occurrence would not reach its descendant leaf (no implicit inheritance).
+issue = "TICKET-123"
+
+FixFailingTest = [issue] -> [
+    [] -> @timeout(10) { code: ReadCode[issue], logs: ReadLogs[issue] },
+    [{code, logs}] -> Diagnose[code, logs],
+    Patch,
+    Verify
+]
+
+ReadCode = [issue]      -> $readCode(issue)
+ReadLogs = [issue]      -> $ciLogs(issue)
+Diagnose = [code, logs] -> $diagnoseWithLLM(code, logs)
+Patch    = [diagnosis]  -> @retry(2) $editFiles(diagnosis)
+Verify   = [patch]      -> Summarize[patch]
+Summarize = (patch) -> { $runTests(patch); "verified " + patch }
+
+FixFailingTest[issue]

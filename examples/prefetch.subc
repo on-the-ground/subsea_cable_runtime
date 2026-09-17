@@ -1,0 +1,5 @@
+// Explicit arguments let later stages deduce before earlier ones finish, so a
+// prefetch window can fill ahead of evaluation.
+Pipeline = [] -> [Step[1], Step[2], Step[3], Step[4]]
+Step = [n] -> $work(n)
+Pipeline[]
