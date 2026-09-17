@@ -47,6 +47,7 @@ type Config struct {
 	Concurrency int
 	Demand      DemandMode
 	Policies    *Registry
+	Hooks       SchedulerHooks
 	Host        host.Host
 	Codebase    *codebase.Codebase
 	MaxSteps    int
@@ -68,6 +69,17 @@ func (c *Config) defaults() {
 	if c.MaxSteps <= 0 {
 		c.MaxSteps = 100000
 	}
+}
+
+// SchedulerHooks are baseline-Scheduler test doubles. They exercise the
+// Carousel/Scheduler boundary without any concrete @policy semantics.
+type SchedulerHooks struct {
+	// WithholdFirstDispatch returns how many ticks to withhold the first
+	// attempt of a grounded leaf (0: dispatch normally). Asked once per leaf.
+	WithholdFirstDispatch func(occurrence string) int
+	// ReattemptAfterFailure decides whether the Scheduler creates another
+	// attempt of a failed evaluation instance. The baseline never does.
+	ReattemptAfterFailure func(occurrence string, failedAttempt int) bool
 }
 
 // ScopeState is the runtime state of an exposed occurrence.
@@ -108,6 +120,7 @@ type Scope struct {
 	notBefore   int
 	policies    []*boundPolicy
 	opened      bool
+	withheld    bool
 	// deferred holds a deduction failure found by speculative prefetch. It is
 	// surfaced only when the Scheduler would demand the occurrence, so that
 	// prefetch does not change which outcomes a run observes.
@@ -261,6 +274,20 @@ func (r *Run) demand(id string) carousel.DemandResult {
 
 // SetPrefetch reconfigures the Touchdown window target.
 func (r *Run) SetPrefetch(n int) { r.car.SetPrefetch(n) }
+
+// CancelScope is the Scheduler operation that cancels one exposed scope: its
+// in-flight attempts are cancelled, undeduced occurrences under it are
+// withdrawn, and never-attempted Touchdowns are discarded.
+func (r *Run) CancelScope(id, reason string) {
+	if r.result != nil {
+		return
+	}
+	s := r.scopes[id]
+	if s == nil {
+		return
+	}
+	r.settle(s, ScopeCancelled, value.None, diag.New("ScopeCancelled", diag.Policy, nil, "%s", reason), "scheduler")
+}
 
 // Cancel cancels the whole run.
 func (r *Run) Cancel(reason string) {
@@ -432,6 +459,16 @@ func (r *Run) handle(evs []carousel.Event) {
 		detail := e.Reason
 		if e.Count != 0 {
 			detail = strings.TrimSpace(fmt.Sprintf("%s count=%d", detail, e.Count))
+		}
+		switch e.Kind {
+		case carousel.TouchdownPublished, carousel.TouchdownConsumed, carousel.TouchdownDiscarded:
+			detail = strings.TrimSpace(fmt.Sprintf("%s instance=%s", detail, e.EvaluationInstance))
+			if e.Attempt != "" {
+				detail += " attempt=" + e.Attempt
+			}
+			detail += fmt.Sprintf(" window=%d", e.Window)
+		case carousel.DemandedTouchdownOverTarget:
+			detail = fmt.Sprintf("target=%d window=%d", e.Count, e.Window)
 		}
 		switch e.Kind {
 		case carousel.OccurrenceExposed:
@@ -638,6 +675,15 @@ func (r *Run) dispatch() {
 		if len(r.inflight) >= r.cfg.Concurrency {
 			continue
 		}
+		if s.Attempts == 0 && !s.withheld && r.cfg.Hooks.WithholdFirstDispatch != nil {
+			s.withheld = true
+			if ticks := r.cfg.Hooks.WithholdFirstDispatch(o.ID); ticks > 0 {
+				s.notBefore = r.now + ticks
+				r.push(&timelineItem{at: s.notBefore, kind: "backoff", scope: s.ID})
+				r.trace.add(r.now, "DispatchWithheld", s.ID, fmt.Sprintf("until=%d", s.notBefore))
+				continue
+			}
+		}
 		if r.apply(s, r.notify(s, PolicyEvent{Kind: BeforeAttempt, Attempt: s.Attempts + 1})) {
 			continue
 		}
@@ -652,20 +698,29 @@ func (r *Run) dispatch() {
 }
 
 func (r *Run) start(s *Scope, o *carousel.Occurrence) {
-	s.Attempts++
-	at := &attempt{id: fmt.Sprintf("%s/%s#%d", r.cfg.RunID, o.ID, s.Attempts), scope: s.ID, no: s.Attempts}
+	no := s.Attempts + 1
+	at := &attempt{id: fmt.Sprintf("%s/%s#%d", r.cfg.RunID, o.ID, no), scope: s.ID, no: no}
+	if no == 1 {
+		// SCP-0001: the first dispatch creates the attempt record, then
+		// issues one consume acknowledgement; only Consumed lets the Host be
+		// invoked. Later attempts never consume again.
+		res, _ := r.car.ConsumeTouchdown(o.ID, r.car.EvaluationInstanceID(o), at.id)
+		r.handle(r.car.Drain())
+		if res != carousel.AckConsumed {
+			r.trace.add(r.now, "AttemptAborted", o.ID, fmt.Sprintf("attempt=%s consume=%s", at.id, res))
+			if !s.State.terminal() {
+				d := diag.New("TouchdownAcknowledgementRejected", diag.Policy, nil, "consume acknowledgement returned %s", res)
+				d.Occurrence = o.ID
+				r.settle(s, ScopeFailed, value.None, d, "boundary")
+			}
+			return
+		}
+	}
+	s.Attempts = no
 	r.inflight[at.id] = at
 	s.Leaf = LeafInFlight
 	ctx := host.LeafContext{RunID: r.cfg.RunID, Occurrence: o.ID, Artifact: o.Artifact, Leaf: o.Leaf,
 		Lineages: []string{o.Lineage}, AttemptID: at.id, AttemptNo: at.no, ArgsDigest: value.Digest(o.Args)}
-	if s.Attempts == 1 {
-		// Owner decision R10 / Carousel decision 6: a Touchdown is consumed
-		// when its first attempt is dispatched to the Host. Selection and
-		// BeforeAttempt policy do not consume it, and reattempts never
-		// re-enter the window or consume it again.
-		r.car.Consume(o.ID)
-		r.handle(r.car.Drain())
-	}
 	r.trace.add(r.now, "EvaluationStarted", o.ID, fmt.Sprintf("attempt=%s leaf=%s", at.id, o.Label()))
 	var out host.Outcome
 	if o.Kind == carousel.KindFunction {
@@ -734,6 +789,11 @@ func (r *Run) deliver(it *timelineItem) {
 				return
 			}
 		}
+		if out.Status == host.Failed && r.cfg.Hooks.ReattemptAfterFailure != nil && r.cfg.Hooks.ReattemptAfterFailure(s.ID, at.no) {
+			s.Leaf = LeafWaiting
+			r.trace.add(r.now, "ReattemptScheduled", s.ID, fmt.Sprintf("next=%d by=scheduler", s.Attempts+1))
+			return
+		}
 		if r.apply(s, acts) {
 			return
 		}
@@ -766,7 +826,7 @@ func (r *Run) settle(s *Scope, st ScopeState, out value.Output, d *diag.Diagnost
 	if o.IsLeaf() {
 		// A dispatched leaf was consumed already; a leaf settled before its
 		// first attempt (for example, cancelled) is discarded instead.
-		r.car.Discard(o.ID, string(st))
+		r.car.DiscardTouchdown(o.ID, string(st))
 		r.handle(r.car.Drain())
 	}
 	if o.Deducible() && r.car.Occurrence(o.ID).State == carousel.Undeduced {
@@ -825,7 +885,7 @@ func (r *Run) cancelSubtree(o *carousel.Occurrence) {
 				r.notify(cs, PolicyEvent{Kind: CancelRequested})
 				cs.State = ScopeCancelled
 				if c.IsLeaf() {
-					r.car.Discard(cid, "cancelled")
+					r.car.DiscardTouchdown(cid, "cancelled")
 					r.handle(r.car.Drain())
 				}
 				r.trace.add(r.now, "ScopeOutcome", cid, "Cancelled rule=ancestor")

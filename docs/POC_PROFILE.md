@@ -14,7 +14,6 @@
 | `poc-baseline/0` | Scheduler and scope-outcome rules | `runtime/runtime.go` |
 | `poc-rational/0` | Host primitive semantics | `host/primitives.go` |
 | `poc-sha256-canon/1` | Artifact encoding and hashing | `codebase/codebase.go` |
-| `example-0` | Illustrative `@retry` / `@timeout` interpreters | `runtime/policyexamples/` |
 
 ## Decisions the POC had to make, and what stays open
 
@@ -22,21 +21,22 @@
 |---|---|---|---|
 | Prefetch scope | Carousel 1 | One target per run | — |
 | Demand cardinality | Carousel 2, R2 | `--demand ready` (default): the baseline Scheduler explicitly demands every exposed occurrence whose serial predecessors (and its ancestors' predecessors) are satisfied. `--demand manual`: only the Root is demanded; the caller demands the rest. The Carousel never infers demand. All demand goes through one Runtime path; `Carousel.Demand` reports the occurrence state (`accepted`, `already-committed`, `failed`, `withdrawn`, ...). | `runtime.Config.Demand` |
-| Window counting | Carousel 3 — **decided** | Counts every published, unconsumed grounded leaf, including ones the Scheduler considers ineligible or holds; the target is compared with that count directly | — |
+| Window counting | Carousel 3 — **decided** (SCP-0001) | Counts every published leaf without an applied consume or discard acknowledgement, including ineligible and withheld leaves; the target is compared with that count directly; a full window stops only speculative deduction | — |
 | Prefetch traversal | Carousel 4 | Exposure order: the first undeduced, undemanded, unblocked occurrence | `carousel.Replenish` |
 | Reconfiguration | Carousel 5 | `Run.SetPrefetch` at any time; affects later passes only | — |
-| Consumption point | Carousel 6, R10 — **decided** | A Touchdown is consumed when its first attempt is dispatched. Selection and `BeforeAttempt` (including `Hold`) do not consume it; reattempts never re-enter the window. A leaf settled before its first attempt leaves with `TouchdownDiscarded`. | — |
+| Consumption point | Carousel 6, R10 — **decided** (SCP-0001) | `ConsumeTouchdown` is applied before the Host is invoked for the first attempt; only `consumed` proceeds. Selection, `BeforeAttempt`, and withholding do not consume. Later attempts never re-enter the window. `DiscardTouchdown` is applied when a never-attempted leaf's scope settles. `evaluationInstance` = `runId/occurrenceId/digest(arguments)`. | — |
 | Resource budgets | Carousel 7 | Only a run step budget (`StepBudgetExceeded`) | `runtime.Config.MaxSteps` |
 | Default prefetch | Carousel 8 | `0` in the API and the CLI | — |
 | Completion | Carousel 9 | A run with no timeline event and no dispatchable work ends as `RunStuck` with blocking reasons. `PrefetchExhausted` only means no undeduced candidate remains. | — |
 | Vessel naming | Carousel 10, R8 | Not used in code | — |
 | Stored-Goal invocation | R1 | Not offered. A run always starts from the source unit's prepared Root. | — |
 | Eager calls in arguments | R3 | Rejected (`UnsupportedByProfile`) before a run starts, and again if a lazily resolved artifact contains one | — |
-| Composite reattempt | R4 | `Reattempt` on a non-leaf target fails the scope with `UnsupportedPolicyTarget` | — |
+| Composite reattempt | R4 | Not offered. The Scheduler test double `ReattemptAfterFailure` creates later attempts of leaf evaluation instances only | `runtime.SchedulerHooks` |
 | Speculative demand on alias change | R5 | Nothing is withdrawn | — |
 | Scope outcome rules | R6 | `poc-baseline/0`: see below | `runtime.evaluateParent` |
 | Value store owner | R7 | The Runtime owns it; the Carousel reads it through `carousel.ValueSource` | — |
-| Policy observation and actions | R9 | Closed action set `Admit`, `Hold`, `StartTimer`, `Reattempt`, `CancelScope`, `FailScope`, `Emit`. `Hold` and `Reattempt` apply only to leaf targets. `SatisfyScope` is not implemented. | `runtime/policy.go` |
+| Policy observation and actions | R9 (open) | No interpreters ship; the registry is empty and every policy fails its scope with `UnknownPolicy` when disclosed. The interpreter interface and action set in `runtime/policy.go` are an **experimental carrier probe** used only by tests. | `runtime/policy.go` |
+| Withholding and cancellation | — | Scheduler operations, not policies: the test double `WithholdFirstDispatch`, and `Run.CancelScope` | `runtime.SchedulerHooks` |
 | Policy stacking | — | Rejected as `PolicyConflict` unless the registry declares the ordered pair. With a declared pair, events go to each policy in source order and actions are concatenated (POC-only rule). | `Registry.AllowPair` |
 
 ## `poc-baseline/0` scope outcomes
@@ -82,6 +82,16 @@ keyed by `(runId, occurrenceId)`.
 - Computed map keys normalize terminating decimals (`1.50` → `1.5`); other
   rationals use `num/den`.
 
+## Experimental and blocked paths
+
+| Path | Status | ADR |
+|---|---|---|
+| Inline Goal-arrow stages (`goal-arrow-stage` occurrences) | experimental | [0002](decisions/0002-inline-goal-arrow-stages.md) |
+| Structure-valued lookup maps | blocked (`UnsupportedByProfile`) | [0003](decisions/0003-structure-valued-lookup-maps.md) |
+| Top-level values in artifact hashes | experimental | [0004](decisions/0004-artifact-hash-value-closure.md) |
+| Runtime `NoOutput` diagnostics | experimental | [0005](decisions/0005-dynamic-nooutput-errors.md) |
+| Eager `Goal(...)` / value-position `$anchor(...)` outside function leaves | blocked (`UnsupportedByProfile`) | Owner decision R3 |
+
 ## `poc-sha256-canon/1` artifacts
 
 - Every atom is length-framed (`tag<len>:<bytes>`) and every node carries its
@@ -105,15 +115,18 @@ keyed by `(runId, occurrenceId)`.
   shows its lineage set across its occurrences.
 - Inline Goal-arrow stages (`[x] -> ...` inside a composition) are
   occurrences of kind `goal-arrow-stage`. They deduce like Goals, with
-  reference kind `inline-arrow`, once their routed input exists. See
-  the language repository's `implementation/CAROUSEL_POC_FINDINGS.md` F3.
+  reference kind `inline-arrow`, once their routed input exists. This path is
+  experimental (ADR 0002).
 
 ## Trace
 
 The trace is a POC diagnostic contract. It includes every event in
 `implementation/RUNTIME_CONTRACT.md` §11 that the POC can produce, the Carousel
-plan events, and the orchestration plan §12 additions, plus:
-`DeductionBlocked`, `PrefetchExhausted`, `TouchdownDiscarded`,
-`DeductionFailureDeferred`, `DeductionFailureSurfaced`, `EvaluationWaiting`,
-`ReattemptScheduled`, `TimerStarted`, `TimerFired`, `TimerIgnored`,
-`BackoffElapsed`, `EvaluationCancelRequested`, and `LateCompletionIgnored`.
+plan events, and the orchestration plan §12 additions. `TouchdownPublished`,
+`TouchdownConsumed`, `TouchdownDiscarded`, and `DemandedTouchdownOverTarget`
+carry the SCP-0001 fields (`instance`, `attempt`, `window`, `target`). POC-only
+events: `DeductionBlocked`, `PrefetchExhausted`, `DeductionFailureDeferred`,
+`DeductionFailureSurfaced`, `EvaluationWaiting`, `DispatchWithheld`,
+`AttemptAborted`, `ReattemptScheduled`, `TimerStarted`, `TimerFired`,
+`TimerIgnored`, `BackoffElapsed`, `EvaluationCancelRequested`, and
+`LateCompletionIgnored`.

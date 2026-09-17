@@ -15,7 +15,6 @@ import (
 	"github.com/on-the-ground/subsea_cable_runtime/codebase"
 	"github.com/on-the-ground/subsea_cable_runtime/host"
 	"github.com/on-the-ground/subsea_cable_runtime/runtime"
-	"github.com/on-the-ground/subsea_cable_runtime/runtime/policyexamples"
 	"github.com/on-the-ground/subsea_cable_runtime/sema"
 )
 
@@ -78,12 +77,13 @@ func run(args []string) {
 	prefetch := fs.Int("prefetch", 0, "additional Touchdowns to keep ahead of evaluation")
 	conc := fs.Int("concurrency", 4, "maximum in-flight attempts")
 	demand := fs.String("demand", "ready", "baseline Scheduler demand mode: ready | manual")
-	examples := fs.Bool("example-policies", false, "register the ILLUSTRATIVE @retry/@timeout interpreters")
 	jsonl := fs.Bool("jsonl", false, "print the trace as JSON lines")
 	fail := kv{}
 	ticks := kv{}
+	reattempts := kv{}
 	fs.Var(fail, "fail", "make the next N direct attempts of a leaf fail (name=N, repeatable)")
 	fs.Var(ticks, "ticks", "virtual duration of a leaf (name=N, repeatable)")
+	fs.Var(reattempts, "reattempt", "Scheduler test double: reattempt a failed leaf up to N times (name=N, repeatable)")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
 		usage()
@@ -100,14 +100,19 @@ func run(args []string) {
 	}
 	cfg := runtime.Config{Prefetch: *prefetch, Concurrency: *conc,
 		Demand: runtime.DemandMode(*demand), Host: h, Codebase: cb}
-	if *examples {
-		cfg.Policies = policyexamples.Registry()
+	var run *runtime.Run
+	if len(reattempts) > 0 {
+		cfg.Hooks.ReattemptAfterFailure = func(occ string, failed int) bool {
+			o := run.Carousel().Occurrence(occ)
+			return o != nil && failed <= reattempts[o.Leaf]
+		}
 	}
 	r, err := runtime.Start(cfg, u)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	run = r
 	res := r.RunToCompletion()
 	if *jsonl {
 		r.Trace().WriteJSONL(os.Stdout)

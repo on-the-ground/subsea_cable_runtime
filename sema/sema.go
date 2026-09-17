@@ -305,11 +305,11 @@ func (c *checker) structuralShaped(x syntax.Expr) bool {
 	case *syntax.Policied, *syntax.Anchor, *syntax.Serial, *syntax.Parallel, *syntax.GoalArrow:
 		return true
 	case *syntax.Name:
+		// Outside serial/parallel composition a bare identifier is always a
+		// value name, whatever its case; only suffixed uppercase names are
+		// Goal references.
 		upper, _ := syntax.IsUpper(n.Ident)
-		if !upper {
-			return false
-		}
-		return n.Suffix != syntax.NoSuffix || c.isGoalName(n.Ident)
+		return upper && n.Suffix != syntax.NoSuffix
 	}
 	return false
 }
@@ -504,6 +504,7 @@ func (c *checker) checkStructure(x syntax.Expr, sc *scope, in inputKind, stage b
 }
 
 func (c *checker) checkLookupStructure(n *syntax.Name, sc *scope, in inputKind, stage bool) bool {
+	c.unsupportedAt(n, "structure-valued lookup %s[...] is blocked pending a language decision (Draft SCP: structure-valued lookup maps)", n.Ident)
 	if len(n.Args) != 1 {
 		c.add("InvalidStructuralContext", n, "map lookup takes exactly one key")
 		return true
