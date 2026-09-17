@@ -132,7 +132,8 @@ const (
 	PrefetchExhausted       EventKind = "PrefetchExhausted"
 	AtomicPrefetchOvershoot EventKind = "AtomicPrefetchOvershoot"
 	// DemandedTouchdownOverTarget: an explicitly demanded deduction published
-	// leaves while the window was already at or above the target (SCP-0001).
+	// at least one leaf and the window count after it exceeds the target
+	// (SCP-0001).
 	DemandedTouchdownOverTarget EventKind = "DemandedTouchdownOverTarget"
 )
 
@@ -318,18 +319,36 @@ func (c *Carousel) InWindow(id string) bool { return c.window[id] }
 type AckResult string
 
 const (
-	AckConsumed         AckResult = "consumed"
+	AckConsumed AckResult = "consumed"
+	// AckConsumedReplay: the same attempt already consumed this Touchdown.
+	// It re-confirms that attempt's authorization and emits no event.
+	AckConsumedReplay AckResult = "consumed-replayed"
+	// AckAlreadyConsumed: a different attempt consumed it first. It
+	// authorizes nothing.
 	AckAlreadyConsumed  AckResult = "already-consumed"
+	AckInvalidAttempt   AckResult = "invalid-attempt"
 	AckDiscarded        AckResult = "discarded"
 	AckAlreadyDiscarded AckResult = "already-discarded"
 	AckMismatch         AckResult = "mismatch"
 	AckUnknown          AckResult = "unknown"
 )
 
+type touchdownState int
+
+const (
+	tdBuffered touchdownState = iota
+	tdConsumed
+	tdDiscarded
+)
+
 type touchdown struct {
-	consumedBy string
-	discarded  bool
+	state      touchdownState
+	consumedBy string // attempt that consumed it, when state == tdConsumed
 }
+
+// Authorizes reports whether an acknowledgement result lets the Scheduler
+// invoke the Host for the attempt that issued it.
+func (a AckResult) Authorizes() bool { return a == AckConsumed || a == AckConsumedReplay }
 
 // EvaluationInstanceID derives the evaluation-instance identity of a grounded
 // leaf: run, occurrence, and its resolved argument tuple.
@@ -338,21 +357,26 @@ func (c *Carousel) EvaluationInstanceID(o *Occurrence) string {
 }
 
 // ConsumeTouchdown applies the Scheduler's first-dispatch acknowledgement
-// atomically. Only AckConsumed permits invoking the Host. The second return
-// value is the attempt that consumed the Touchdown, when there is one.
+// atomically. Only AckConsumed and AckConsumedReplay (see Authorizes) permit
+// invoking the Host. The second return value is the attempt that consumed the
+// Touchdown, when there is one.
 func (c *Carousel) ConsumeTouchdown(occ, evaluationInstance, attempt string) (AckResult, string) {
 	o, td := c.occs[occ], c.touchdowns[occ]
 	switch {
+	case attempt == "":
+		return AckInvalidAttempt, ""
 	case o == nil || td == nil:
 		return AckUnknown, ""
 	case evaluationInstance != c.EvaluationInstanceID(o):
 		return AckMismatch, ""
-	case td.discarded:
+	case td.state == tdDiscarded:
 		return AckDiscarded, ""
-	case td.consumedBy != "":
+	case td.state == tdConsumed && td.consumedBy == attempt:
+		return AckConsumedReplay, attempt
+	case td.state == tdConsumed:
 		return AckAlreadyConsumed, td.consumedBy
 	}
-	td.consumedBy = attempt
+	td.state, td.consumedBy = tdConsumed, attempt
 	delete(c.window, occ)
 	c.lastPrefix = ""
 	c.emit(Event{Kind: TouchdownConsumed, Occ: occ, Window: c.Window(), EvaluationInstance: evaluationInstance, Attempt: attempt})
@@ -366,12 +390,12 @@ func (c *Carousel) DiscardTouchdown(occ, reason string) (AckResult, string) {
 	switch {
 	case o == nil || td == nil:
 		return AckUnknown, ""
-	case td.discarded:
+	case td.state == tdDiscarded:
 		return AckAlreadyDiscarded, ""
-	case td.consumedBy != "":
+	case td.state == tdConsumed:
 		return AckAlreadyConsumed, td.consumedBy
 	}
-	td.discarded = true
+	td.state = tdDiscarded
 	delete(c.window, occ)
 	c.lastPrefix = ""
 	c.emit(Event{Kind: TouchdownDiscarded, Occ: occ, Reason: reason, Window: c.Window(), EvaluationInstance: c.EvaluationInstanceID(o)})
@@ -601,7 +625,6 @@ func (c *Carousel) deduce(o *Occurrence, cause string) bool {
 		}
 	}
 	c.emit(Event{Kind: DeductionCommitted, Occ: o.ID, Record: &committed, Reason: cause})
-	before := c.Window()
 	leaves := 0
 	for _, s := range st.occs {
 		c.register(s)
@@ -609,7 +632,7 @@ func (c *Carousel) deduce(o *Occurrence, cause string) bool {
 			leaves++
 		}
 	}
-	if cause == "demand" && leaves > 0 && before >= c.prefetch {
+	if cause == "demand" && leaves > 0 && c.Window() > c.prefetch {
 		c.emit(Event{Kind: DemandedTouchdownOverTarget, Occ: o.ID, Count: c.prefetch, Window: c.Window()})
 	}
 	return true

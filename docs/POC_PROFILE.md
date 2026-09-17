@@ -24,13 +24,13 @@
 | Window counting | Carousel 3 — **decided** (SCP-0001) | Counts every published leaf without an applied consume or discard acknowledgement, including ineligible and withheld leaves; the target is compared with that count directly; a full window stops only speculative deduction | — |
 | Prefetch traversal | Carousel 4 | Exposure order: the first undeduced, undemanded, unblocked occurrence | `carousel.Replenish` |
 | Reconfiguration | Carousel 5 | `Run.SetPrefetch` at any time; affects later passes only | — |
-| Consumption point | Carousel 6, R10 — **decided** (SCP-0001) | `ConsumeTouchdown` is applied before the Host is invoked for the first attempt; only `consumed` proceeds. Selection, `BeforeAttempt`, and withholding do not consume. Later attempts never re-enter the window. `DiscardTouchdown` is applied when a never-attempted leaf's scope settles. `evaluationInstance` = `runId/occurrenceId/digest(arguments)`. | — |
+| Consumption point | Carousel 6, R10 — **decided** (SCP-0001) | `ConsumeTouchdown` is applied before the Host is invoked for the first attempt; only `consumed` and a same-attempt replay (`consumed-replayed`, no event) proceed; `already-consumed` (a different attempt), `discarded`, `invalid-attempt`, `mismatch`, and `unknown` abort the attempt without a Host call and settle the leaf with `TouchdownAcknowledgementRejected`. Selection, `BeforeAttempt`, and withholding do not consume. Later attempts never re-enter the window. `DiscardTouchdown` is applied when a never-attempted leaf's scope settles. `evaluationInstance` = `runId/occurrenceId/digest(arguments)`. | — |
 | Resource budgets | Carousel 7 | Only a run step budget (`StepBudgetExceeded`) | `runtime.Config.MaxSteps` |
 | Default prefetch | Carousel 8 | `0` in the API and the CLI | — |
 | Completion | Carousel 9 | A run with no timeline event and no dispatchable work ends as `RunStuck` with blocking reasons. `PrefetchExhausted` only means no undeduced candidate remains. | — |
 | Vessel naming | Carousel 10, R8 | Not used in code | — |
 | Stored-Goal invocation | R1 | Not offered. A run always starts from the source unit's prepared Root. | — |
-| Eager calls in arguments | R3 | Rejected (`UnsupportedByProfile`) before a run starts, and again if a lazily resolved artifact contains one | — |
+| Eager calls in arguments | R3 (Draft SCP) | Rejected (`UnsupportedByProfile`) before a run starts, and again if a lazily resolved artifact contains one | [0006](decisions/0006-argument-position-call-staging.md) |
 | Composite reattempt | R4 | Not offered. The Scheduler test double `ReattemptAfterFailure` creates later attempts of leaf evaluation instances only | `runtime.SchedulerHooks` |
 | Speculative demand on alias change | R5 | Nothing is withdrawn | — |
 | Scope outcome rules | R6 | `poc-baseline/0`: see below | `runtime.evaluateParent` |
@@ -90,7 +90,7 @@ keyed by `(runId, occurrenceId)`.
 | Structure-valued lookup maps | blocked (`UnsupportedByProfile`) | [0003](decisions/0003-structure-valued-lookup-maps.md) |
 | Top-level values in artifact hashes | experimental | [0004](decisions/0004-artifact-hash-value-closure.md) |
 | Runtime `NoOutput` diagnostics | experimental | [0005](decisions/0005-dynamic-nooutput-errors.md) |
-| Eager `Goal(...)` / value-position `$anchor(...)` outside function leaves | blocked (`UnsupportedByProfile`) | Owner decision R3 |
+| Eager `Goal(...)` / value-position `$anchor(...)` outside function leaves | blocked (`UnsupportedByProfile`) | [0006](decisions/0006-argument-position-call-staging.md) (Owner decision R3) |
 
 ## `poc-sha256-canon/1` artifacts
 

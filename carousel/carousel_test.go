@@ -538,7 +538,48 @@ func TestDemandIsDeducedOverAFullWindow(t *testing.T) {
 	}
 }
 
-// Scenario 20: consume is applied once.
+// Scenario 19 (partial window): the over-target condition uses the count
+// after the demanded deduction, not the count before it.
+func TestDemandOverTargetFromPartialWindow(t *testing.T) {
+	src := "P = [] -> {$a(), $b()}\nRoot = [] -> {$w(), P[]}\nRoot[]"
+	f := open(t, codebase.New(), src, 1)
+	if f.car.Window() != 1 || f.occ("r.d.1").State != carousel.Undeduced {
+		t.Fatalf("setup: window=%d", f.car.Window())
+	}
+	f.car.SetPrefetch(2) // target 2, one leaf buffered
+	f.car.Demand("r.d.1")
+	ev := f.step()
+	if f.car.Window() != 3 {
+		t.Fatalf("window=%d, want 3", f.car.Window())
+	}
+	var over *carousel.Event
+	for i := range ev {
+		if ev[i].Kind == carousel.DemandedTouchdownOverTarget {
+			over = &ev[i]
+		}
+	}
+	if over == nil || over.Occ != "r.d.1" || over.Window != 3 || over.Count != 2 {
+		t.Fatalf("missing or wrong DemandedTouchdownOverTarget: %+v", ev)
+	}
+	if count(ev, carousel.AtomicPrefetchOvershoot) != 0 {
+		t.Fatalf("a demanded deduction is not a prefetch overshoot: %+v", ev)
+	}
+}
+
+// A demanded deduction that stays within the target reports nothing.
+func TestDemandWithinTargetIsNotOverTarget(t *testing.T) {
+	src := "P = [] -> {$a(), $b()}\nRoot = [] -> {$w(), P[]}\nRoot[]"
+	f := open(t, codebase.New(), src, 1)
+	f.car.SetPrefetch(3)
+	f.car.Demand("r.d.1")
+	ev := f.step()
+	if f.car.Window() != 3 || count(ev, carousel.DemandedTouchdownOverTarget) != 0 {
+		t.Fatalf("window=%d events=%+v", f.car.Window(), ev)
+	}
+}
+
+// Scenarios 20 and 23: consume is applied once; a replay by the same attempt
+// re-confirms it, and a competing attempt is not authorized.
 func TestConsumeIsAppliedOnce(t *testing.T) {
 	f := open(t, codebase.New(), pipeline, 1)
 	o := f.occ("r.d.0.d")
@@ -547,13 +588,24 @@ func TestConsumeIsAppliedOnce(t *testing.T) {
 		t.Fatalf("first consume: %s", res)
 	}
 	f.car.Drain()
+	// Replay by the same attempt re-confirms its authorization.
 	res, by := f.car.ConsumeTouchdown(o.ID, inst, "a1")
-	res2, by2 := f.car.ConsumeTouchdown(o.ID, inst, "a2")
-	if res != carousel.AckAlreadyConsumed || by != "a1" || res2 != carousel.AckAlreadyConsumed || by2 != "a1" {
-		t.Fatalf("repeat consume: %s/%s %s/%s", res, by, res2, by2)
+	if res != carousel.AckConsumedReplay || by != "a1" || !res.Authorizes() {
+		t.Fatalf("replayed consume: %s/%s", res, by)
+	}
+	// A different attempt lost the first dispatch and is not authorized.
+	res, by = f.car.ConsumeTouchdown(o.ID, inst, "a2")
+	if res != carousel.AckAlreadyConsumed || by != "a1" || res.Authorizes() {
+		t.Fatalf("competing consume: %s/%s", res, by)
+	}
+	if res, _ := f.car.ConsumeTouchdown(o.ID, inst, ""); res != carousel.AckInvalidAttempt || res.Authorizes() {
+		t.Fatalf("empty attempt: %s", res)
 	}
 	if len(f.car.Drain()) != 0 {
 		t.Fatal("a repeated acknowledgement emitted events")
+	}
+	if f.car.InWindow(o.ID) {
+		t.Fatal("a consumed Touchdown re-entered the window")
 	}
 	if res, _ := f.car.ConsumeTouchdown(o.ID, "wrong", "a3"); res != carousel.AckMismatch {
 		t.Fatalf("mismatched instance: %s", res)

@@ -467,8 +467,16 @@ func (r *Run) handle(evs []carousel.Event) {
 				detail += " attempt=" + e.Attempt
 			}
 			detail += fmt.Sprintf(" window=%d", e.Window)
+			window := e.Window
+			r.trace.addEvent(TraceEvent{Time: r.now, Kind: string(e.Kind), RunID: r.cfg.RunID, Occ: e.Occ,
+				EvaluationInstanceID: e.EvaluationInstance, AttemptID: e.Attempt, Reason: e.Reason,
+				WindowCount: &window, Detail: detail})
+			continue
 		case carousel.DemandedTouchdownOverTarget:
-			detail = fmt.Sprintf("target=%d window=%d", e.Count, e.Window)
+			window, target := e.Window, e.Count
+			r.trace.addEvent(TraceEvent{Time: r.now, Kind: string(e.Kind), RunID: r.cfg.RunID, Occ: e.Occ,
+				WindowCount: &window, Target: &target, Detail: fmt.Sprintf("target=%d window=%d", target, window)})
+			continue
 		}
 		switch e.Kind {
 		case carousel.OccurrenceExposed:
@@ -702,12 +710,19 @@ func (r *Run) start(s *Scope, o *carousel.Occurrence) {
 	at := &attempt{id: fmt.Sprintf("%s/%s#%d", r.cfg.RunID, o.ID, no), scope: s.ID, no: no}
 	if no == 1 {
 		// SCP-0001: the first dispatch creates the attempt record, then
-		// issues one consume acknowledgement; only Consumed lets the Host be
-		// invoked. Later attempts never consume again.
-		res, _ := r.car.ConsumeTouchdown(o.ID, r.car.EvaluationInstanceID(o), at.id)
+		// issues one consume acknowledgement; only Consumed (or a replay of
+		// this same attempt's consume) lets the Host be invoked. The attempt
+		// record below still guarantees one Host call per attempt. Later
+		// attempts never consume again.
+		res, by := r.car.ConsumeTouchdown(o.ID, r.car.EvaluationInstanceID(o), at.id)
 		r.handle(r.car.Drain())
-		if res != carousel.AckConsumed {
-			r.trace.add(r.now, "AttemptAborted", o.ID, fmt.Sprintf("attempt=%s consume=%s", at.id, res))
+		if !res.Authorizes() {
+			detail := fmt.Sprintf("attempt=%s consume=%s", at.id, res)
+			if by != "" {
+				detail += " consumedBy=" + by
+			}
+			r.trace.addEvent(TraceEvent{Time: r.now, Kind: "AttemptAborted", RunID: r.cfg.RunID, Occ: o.ID,
+				AttemptID: at.id, Reason: string(res), Detail: detail})
 			if !s.State.terminal() {
 				d := diag.New("TouchdownAcknowledgementRejected", diag.Policy, nil, "consume acknowledgement returned %s", res)
 				d.Occurrence = o.ID

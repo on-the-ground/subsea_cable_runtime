@@ -18,10 +18,12 @@ The Carousel keeps a prefetch window of grounded leaves. Before this decision th
 
 Implement SCP-0001:
 
-- `Carousel.ConsumeTouchdown(occurrence, evaluationInstance, attempt)` is applied once, before the Host is invoked, for the first attempt only; only `consumed` lets the attempt proceed.
+- `Carousel.ConsumeTouchdown(occurrence, evaluationInstance, attempt)` is applied once, before the Host is invoked, for the first attempt only. Results: `consumed`; `consumed-replayed` (same attempt, no event); `already-consumed` with the original attempt (different attempt); `discarded`; `invalid-attempt` (empty id); `mismatch`; `unknown`. Only `consumed` and `consumed-replayed` (`AckResult.Authorizes`) let the attempt proceed; the Scheduler's attempt record keeps the Host call to one per attempt. Any other result aborts the attempt (`AttemptAborted`) without calling the Host and settles the leaf with `TouchdownAcknowledgementRejected`.
+- The Carousel keeps an explicit per-Touchdown state (buffered, consumed by an attempt, discarded).
 - `Carousel.DiscardTouchdown(occurrence, reason)` removes never-attempted leaves when their scope settles.
 - The window counts every published leaf without an applied acknowledgement.
-- A full window stops only speculative deduction; demanded deduction proceeds and emits `DemandedTouchdownOverTarget`.
+- A full window stops only speculative deduction; demanded deduction proceeds and emits `DemandedTouchdownOverTarget` when it publishes at least one leaf and the window count after it exceeds the target.
+- The SCP-0001 trace events carry typed fields (`runId`, `occ`, `evaluationInstanceId`, `attemptId`, `reason`, `windowCount`, `target`); `detail` is auxiliary.
 - `evaluationInstance` is `runId/occurrenceId/digest(arguments)`.
 - The `--consume-at` profile knob is removed.
 
@@ -48,7 +50,23 @@ Implement SCP-0001:
 
 ## Verification
 
-`carousel/carousel_test.go` (`TestDemandIsDeducedOverAFullWindow`, `TestConsumeIsAppliedOnce`, `TestConsumeDiscardRace`); `runtime/window_test.go` and `runtime/review_test.go` (Carousel scenarios 15–19 and 21).
+| Scenario (Carousel plan) | Tests |
+|---|---|
+| 15 Dispatch consumption | `runtime/review_test.go` `TestPrefetchWindowIsRefilledBehindInFlightWork` |
+| 16 Withheld first dispatch | `runtime/window_test.go` `TestWithheldLeafOccupiesTheWindow` |
+| 17 Ineligible leaf | `runtime/window_test.go` `TestIneligibleLeafCountsTowardTheWindow` |
+| 18 Subsequent attempt | `runtime/window_test.go` `TestReattemptDoesNotReenterTheWindow` |
+| 19 Demand over the target | `carousel/carousel_test.go` `TestDemandIsDeducedOverAFullWindow`, `TestDemandOverTargetFromPartialWindow`, `TestDemandWithinTargetIsNotOverTarget`; `runtime/window_test.go` `TestDemandBeatsAFullWindow` |
+| 20 Consume replay | `carousel/carousel_test.go` `TestConsumeIsAppliedOnce`; `runtime/window_test.go` `TestReplayedConsumeAuthorizesTheSameAttemptOnce` |
+| 21 Discard before dispatch | `carousel/carousel_test.go` `TestConsumeDiscardRace`; `runtime/window_test.go` `TestDiscardedTouchdownNeverReachesTheHost` |
+| 22 Dispatch/cancellation race | `carousel/carousel_test.go` `TestConsumeDiscardRace` (both orders); `runtime/window_test.go` `TestDiscardedTouchdownNeverReachesTheHost` (discard first) and `TestDiscardAfterDispatchCancelsTheAttempt` (consume first) |
+| 23 Competing first dispatch | `carousel/carousel_test.go` `TestConsumeIsAppliedOnce`; `runtime/window_test.go` `TestCompetingConsumeAbortsWithoutCallingTheHost` |
+| Trace fields | `runtime/trace_test.go` `TestTouchdownEventsHaveTypedFields` (JSONL round trip) |
+
+Scenario 22 is covered by ordering, not by concurrency: the POC reactor is
+serialized, so the Carousel applies acknowledgements one at a time and the
+tests exercise each order explicitly. No test runs the two acknowledgements on
+separate threads.
 
 ## Owner decision record
 
@@ -58,7 +76,7 @@ Implement SCP-0001:
 - Owner response: accepted (2026-09-17)
 - Decision date: 2026-09-17
 - Authorized specification changes: SCP-0001
-- Authorized conformance changes: Carousel plan scenarios 15–22
+- Authorized conformance changes: Carousel plan scenarios 15–23
 
 ## Reversal or supersession
 
