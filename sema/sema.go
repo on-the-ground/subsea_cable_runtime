@@ -405,8 +405,9 @@ func (c *checker) checkStructure(x syntax.Expr, sc *scope, in inputKind, stage b
 			case syntax.BracketSuffix:
 				c.goalRef(n, len(n.Args))
 			case syntax.CallSuffix:
+				// SCP-0003: a direct eager Goal call is a structural occurrence.
 				c.goalRef(n, len(n.Args))
-				c.unsupportedAt(n, "eager Goal call %s(...) (Owner decision R3)", n.Ident)
+				c.staticDestructure(n, sc)
 			default:
 				if !stage {
 					c.add("InvalidStructuralContext", n, "bare Goal %s is only valid as a composition stage", n.Ident)
@@ -560,7 +561,7 @@ func (c *checker) checkValue(x syntax.Expr, sc *scope, fn bool) {
 			c.checkValue(a, sc, fn)
 		}
 		if !fn {
-			c.unsupportedAt(n, "value-position Anchor call $%s outside a function leaf (Owner decision R3)", n.Ident)
+			c.add("InvalidStructuralContext", n, "Anchor call $%s is nested in a value expression; outside a function leaf it must be a direct structural occurrence (SCP-0003)", n.Ident)
 		}
 	case *syntax.Name:
 		c.checkValueName(n, sc, fn)
@@ -597,9 +598,7 @@ func (c *checker) checkValueName(n *syntax.Name, sc *scope, fn bool) {
 			c.add("InvalidStructuralContext", n, "a function leaf body cannot call Goal %s", n.Ident)
 			return
 		}
-		c.goalRef(n, len(n.Args))
-		c.staticDestructure(n, sc)
-		c.unsupportedAt(n, "eager Goal call %s(...) (Owner decision R3)", n.Ident)
+		c.add("InvalidStructuralContext", n, "eager Goal call %s(...) is nested in a value expression; it must be a direct structural occurrence (SCP-0003)", n.Ident)
 	default:
 		if upper {
 			c.add("InvalidStructuralContext", n, "deferred Goal %s[...] is not a value", n.Ident)

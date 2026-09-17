@@ -135,6 +135,18 @@ func (c *Codebase) Get(hash string) (*Artifact, bool) {
 	return a, ok
 }
 
+// Artifacts returns every stored artifact, sorted by hash.
+func (c *Codebase) Artifacts() []*Artifact {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]*Artifact, 0, len(c.artifacts))
+	for _, a := range c.artifacts {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Hash < out[j].Hash })
+	return out
+}
+
 // ResolveCurrent atomically reads the current alias and revision.
 func (c *Codebase) ResolveCurrent(name string, arity int) (*Artifact, int, bool) {
 	c.mu.Lock()

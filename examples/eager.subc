@@ -1,0 +1,6 @@
+// SCP-0003: an eager Goal call is a visible stage; its value is routed
+// explicitly to the next stage.
+Inc = (x) -> x + 1
+Report = [n] -> $report(n)
+Root = [x] -> [Inc(x), [v] -> Report[v]]
+Root[41]

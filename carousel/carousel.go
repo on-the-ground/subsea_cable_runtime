@@ -76,10 +76,13 @@ type Occurrence struct {
 	GoalNodeID   string
 	Revision     int
 	Input        string // occurrence whose output is routed in, if any
-	argExprs     []syntax.Expr
-	env          expr.Env
-	arrow        *syntax.GoalArrow
-	ctx          *codebase.Artifact
+	// Eager marks a direct Goal(...) call: it is demanded as soon as it is
+	// exposed (SCP-0003; README "the suffix changes timing").
+	Eager    bool
+	argExprs []syntax.Expr
+	env      expr.Env
+	arrow    *syntax.GoalArrow
+	ctx      *codebase.Artifact
 
 	// Leaves.
 	Leaf     string
@@ -218,6 +221,11 @@ func (c *Carousel) register(o *Occurrence) {
 	c.occs[o.ID] = o
 	c.order = append(c.order, o)
 	c.emit(Event{Kind: OccurrenceExposed, Occ: o.ID})
+	if o.Eager && o.Deducible() && o.State == Undeduced {
+		// Language-level demand from the call suffix, not Scheduler readiness.
+		c.demanded[o.ID] = true
+		c.emit(Event{Kind: DemandObserved, Occ: o.ID, Reason: "eager"})
+	}
 	if o.IsLeaf() {
 		c.window[o.ID] = true
 		c.touchdowns[o.ID] = &touchdown{}
@@ -748,14 +756,12 @@ func (c *Carousel) expand(st *staging, x syntax.Expr, env expr.Env, in, id, pare
 	case *syntax.Name:
 		upper, _ := syntax.IsUpper(n.Ident)
 		switch {
-		case upper && n.Suffix == syntax.CallSuffix:
-			return nil, diag.New("UnsupportedByProfile", diag.Profile, diag.At(n.Span),
-				"eager Goal call %s(...) needs staging that is not specified yet (Owner decision R3)", n.Ident)
 		case upper:
 			occ = &Occurrence{ID: id, Kind: KindGoal, ParentID: parent, State: Undeduced, Name: n.Ident,
 				RefKind: "unqualified", env: env, ctx: art}
-			if n.Suffix == syntax.BracketSuffix {
+			if n.Suffix == syntax.BracketSuffix || n.Suffix == syntax.CallSuffix {
 				occ.Arity, occ.argExprs = len(n.Args), n.Args
+				occ.Eager = n.Suffix == syntax.CallSuffix
 			} else if in != "" {
 				occ.Arity, occ.Input = 1, in
 			}

@@ -504,18 +504,30 @@ func TestDestructureMismatchAtDeduction(t *testing.T) {
 	}
 }
 
-func TestEagerCallIsRefusedByProfile(t *testing.T) {
-	cb := codebase.New()
-	store(t, cb, "C = (x) -> x\nC[1]", "C", 1)
-	// Store an artifact containing an eager call through a unit that has an
-	// unrelated runnable Root, then reach it lazily.
-	u := unit(t, cb, "Eager = [x] -> [C(x), C[x]]\nOk = [] -> $ok\nOk[]")
-	cb.CommitUnit(u)
-	f := open(t, cb, "Root = [] -> Eager[1]\nRoot[]", 0)
-	f.car.Demand("r.d")
-	f.step()
-	if o := f.occ("r.d"); o.State != carousel.Failed || o.Failure.Kind != "UnsupportedByProfile" {
-		t.Fatalf("got %+v", o.Failure)
+// SCP-0003 / README: Goal(...) demands its occurrence as soon as it is
+// exposed; Goal[...] waits for demand. The suffix changes timing only.
+func TestEagerCallIsDemandedOnExposure(t *testing.T) {
+	src := "C = (x) -> x + 1\nRoot = [x] -> {C(x), C[x]}\nRoot[1]"
+	f := open(t, codebase.New(), src, 0)
+	eager, lazy := f.occ("r.d.0"), f.occ("r.d.1")
+	if !eager.Eager || lazy.Eager {
+		t.Fatal("only the call suffix marks an occurrence eager")
+	}
+	if eager.State != carousel.Committed || lazy.State != carousel.Undeduced {
+		t.Fatalf("eager=%s lazy=%s; want committed and undeduced with prefetch 0", eager.State, lazy.State)
+	}
+	demands := 0
+	for _, e := range f.evs {
+		if e.Kind == carousel.DemandObserved && e.Occ == "r.d.0" && e.Reason == "eager" {
+			demands++
+		}
+	}
+	if demands != 1 {
+		t.Fatalf("eager demand events: %d", demands)
+	}
+	er, lr := f.record("r.d.0"), f.car.Occurrence("r.d.1")
+	if er.GoalNodeID == "" || lr.GoalNodeID != "" {
+		t.Fatal("the eager occurrence must commit its own deduction record")
 	}
 }
 

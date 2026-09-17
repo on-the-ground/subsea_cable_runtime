@@ -252,6 +252,10 @@ func (r *Run) Scope(id string) *Scope { return r.scopes[id] }
 // Result returns the outcome once the run has finished.
 func (r *Run) Result() *Result { return r.result }
 
+// Output reads a resolved occurrence output from the Runtime-owned Outcome &
+// Value Store (SCP-0002).
+func (r *Run) Output(occ string) (value.Output, bool) { return valueStore{r}.Output(occ) }
+
 // Now returns the virtual clock.
 func (r *Run) Now() int { return r.now }
 
@@ -543,6 +547,9 @@ func describeOcc(o *carousel.Occurrence) string {
 	}
 	if o.Input != "" {
 		b.WriteString(" input=" + o.Input)
+	}
+	if o.Eager {
+		b.WriteString(" eager")
 	}
 	for _, p := range o.Policies {
 		b.WriteString(" @" + p.Ident)

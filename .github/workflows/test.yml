@@ -38,30 +38,4 @@ jobs:
         run: |
           go run ./cmd/subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.subc
           go run ./cmd/subc-poc run --prefetch 2 --ticks work=2 --concurrency 1 examples/prefetch.subc
-
-  # Temporary: language PR #1 carries the design documents and conformance
-  # changes this POC follows. Remove this job when the submodule moves to the
-  # merge commit of that pull request (README "Merge checklist").
-  test-language-pr:
-    name: "go test (language PR #1 head)"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-
-      - name: Check out language PR head
-        uses: actions/checkout@v5
-        with:
-          repository: on-the-ground/subsea_cable_language
-          ref: refs/pull/1/head
-          path: language-pr
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Test
-        env:
-          SUBSEA_LANGUAGE_DIR: ${{ github.workspace }}/language-pr
-        run: go test ./...
+          go run ./cmd/subc-poc run examples/eager.subc

@@ -27,12 +27,8 @@ git submodule update --init
 
 | Contract | Revision |
 |---|---|
-| Grammar, conformance corpus, `README.md` semantics | `on-the-ground/subsea_cable_language@cbc6f53` (the `language` submodule) |
-| Design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@d48e640` (PR #1, not yet merged; CI also tests this pull request head) |
+| Grammar, conformance corpus, `README.md` semantics, and the design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@5f17ba5` (the `language` submodule) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
-
-The design documents are not in the pinned revision yet. When PR #1 merges,
-the submodule moves to the merge commit and the two rows become one.
 
 | Path | What it is |
 |---|---|
@@ -133,7 +129,7 @@ deterministic.
 
 `go test ./...` covers the whole pinned conformance corpus, `conformance/DEDUCTION.md`
 scenarios 1–4 and 6–8 (5 only partially: no resume), Carousel plan scenarios
-1–13 and 15–22 (14, replay, is not implemented), and orchestration plan §16
+1–13 and 15–23 (14, replay, is not implemented), and orchestration plan §16
 scenarios 1–3 and 5–11 (scenario 4 is covered with a carrier probe).
 
 ## What this POC does not do
@@ -141,9 +137,6 @@ scenarios 1–3 and 5–11 (scenario 4 is covered with a carrier probe).
 - **Concrete policy semantics.** None ship; see `POLICY_DISCOVERY.md` in the
   language repository.
 - **Structure-valued lookup maps** are blocked (`UnsupportedByProfile`, ADR 0003).
-- **Eager `Goal(...)` calls and value-position `$anchor(...)` calls** outside
-  function leaves are rejected with `UnsupportedByProfile`. Their staging is
-  Owner decision R3 (ADR 0006).
 - **Crash/resume and exact replay** from the ledger are not implemented.
 - **Concurrent deduction** (plan Phase 5) is not implemented; the reactor is
   serialized.
@@ -157,11 +150,7 @@ scenarios 1–3 and 5–11 (scenario 4 is covered with a carrier probe).
 ## Continuous integration
 
 - `test.yml` runs gofmt, vet, tests, and the examples against the pinned
-  language revision on every push and pull request. While language PR #1 is
-  open, a second job runs the same tests against that pull request's head
-  (`refs/pull/1/head`), so the design documents and conformance changes this
-  POC follows are exercised before they merge. The job is removed once the
-  submodule moves to the merge commit (see the merge checklist below).
+  language revision on every push and pull request.
 - `language-drift.yml` runs the same tests against the language repository's
   `main` branch every day and on demand, so grammar, conformance, or contract
   changes that the parser has not caught up with are reported even when this
@@ -171,13 +160,3 @@ scenarios 1–3 and 5–11 (scenario 4 is covered with a carrier probe).
 
 Licensed under the [Apache License 2.0](LICENSE). Report vulnerabilities
 privately as described in [SECURITY.md](SECURITY.md).
-
-## Merge checklist (language PR #1)
-
-1. Merge this repository's pending pull request while the pin is still
-   `cbc6f53` and both CI jobs are green.
-2. Merge `on-the-ground/subsea_cable_language#1`.
-3. In a follow-up pull request here: move the `language` submodule to the
-   language merge commit, change `carousel-poc` links to `main`, merge the two
-   revision rows above into one, and remove the language-PR-head CI job.
-4. Merge the follow-up only when `test.yml` is green on the new pin.
