@@ -28,7 +28,7 @@ git submodule update --init
 | Contract | Revision |
 |---|---|
 | Grammar, conformance corpus, `README.md` semantics | `on-the-ground/subsea_cable_language@cbc6f53` (the `language` submodule) |
-| Design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@ec00b26` (PR #1, not yet merged; CI also tests this pull request head) |
+| Design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@411e98e` (PR #1, not yet merged; CI also tests this pull request head) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
 
 The design documents are not in the pinned revision yet. When PR #1 merges,

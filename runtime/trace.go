@@ -22,7 +22,7 @@ type TraceEvent struct {
 	Time  int    `json:"t"`
 	Kind  string `json:"kind"`
 	RunID string `json:"runId,omitempty"`
-	Occ   string `json:"occ,omitempty"`
+	Occ   string `json:"occurrenceId,omitempty"`
 	// EvaluationInstanceID, AttemptID, and Reason are set when the event
 	// defines them.
 	EvaluationInstanceID string `json:"evaluationInstanceId,omitempty"`

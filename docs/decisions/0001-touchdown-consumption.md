@@ -23,7 +23,7 @@ Implement SCP-0001:
 - `Carousel.DiscardTouchdown(occurrence, reason)` removes never-attempted leaves when their scope settles.
 - The window counts every published leaf without an applied acknowledgement.
 - A full window stops only speculative deduction; demanded deduction proceeds and emits `DemandedTouchdownOverTarget` when it publishes at least one leaf and the window count after it exceeds the target.
-- The SCP-0001 trace events carry typed fields (`runId`, `occ`, `evaluationInstanceId`, `attemptId`, `reason`, `windowCount`, `target`); `detail` is auxiliary.
+- The SCP-0001 trace events carry typed fields (`runId`, `occurrenceId`, `evaluationInstanceId`, `attemptId`, `reason`, `windowCount`, `target`); `detail` is auxiliary.
 - `evaluationInstance` is `runId/occurrenceId/digest(arguments)`.
 - The `--consume-at` profile knob is removed.
 

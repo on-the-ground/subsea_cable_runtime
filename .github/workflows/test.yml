@@ -43,7 +43,7 @@ jobs:
   # changes this POC follows. Remove this job when the submodule moves to the
   # merge commit of that pull request (README "Merge checklist").
   test-language-pr:
-    name: go test (language PR #1 head)
+    name: "go test (language PR #1 head)"
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

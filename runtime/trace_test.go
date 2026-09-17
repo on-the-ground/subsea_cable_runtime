@@ -27,10 +27,10 @@ func TestTouchdownEventsHaveTypedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	required := map[string][]string{
-		"TouchdownPublished":          {"runId", "occ", "evaluationInstanceId", "windowCount"},
-		"TouchdownConsumed":           {"runId", "occ", "evaluationInstanceId", "attemptId", "windowCount"},
-		"TouchdownDiscarded":          {"runId", "occ", "evaluationInstanceId", "reason", "windowCount"},
-		"DemandedTouchdownOverTarget": {"runId", "occ", "windowCount", "target"},
+		"TouchdownPublished":          {"runId", "occurrenceId", "evaluationInstanceId", "windowCount"},
+		"TouchdownConsumed":           {"runId", "occurrenceId", "evaluationInstanceId", "attemptId", "windowCount"},
+		"TouchdownDiscarded":          {"runId", "occurrenceId", "evaluationInstanceId", "reason", "windowCount"},
+		"DemandedTouchdownOverTarget": {"runId", "occurrenceId", "windowCount", "target"},
 	}
 	seen := map[string]bool{}
 	var round []runtime.TraceEvent
@@ -40,6 +40,9 @@ func TestTouchdownEventsHaveTypedFields(t *testing.T) {
 			t.Fatal(err)
 		}
 		kind := raw["kind"].(string)
+		if _, ok := raw["occ"]; ok {
+			t.Errorf("%s uses the non-normalized key \"occ\": %s", kind, line)
+		}
 		for _, f := range required[kind] {
 			if _, ok := raw[f]; !ok {
 				t.Errorf("%s lacks %q: %s", kind, f, line)
