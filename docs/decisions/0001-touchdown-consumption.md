@@ -73,7 +73,7 @@ separate threads.
 - Decision requested on: 2026-09-17
 - Options presented: selection, dispatch, Host start, completion; counting all or eligible leaves; target correction; reattempt re-entry
 - Agent recommendation: dispatch; all unconsumed leaves; no correction; no re-entry
-- Owner response: accepted (2026-09-17)
+- Owner response: core decisions accepted; detailed acknowledgement contract (replay, races, over-target, trace fields, scenarios 15–23) confirmed (2026-09-17)
 - Decision date: 2026-09-17
 - Authorized specification changes: SCP-0001
 - Authorized conformance changes: Carousel plan scenarios 15–23
