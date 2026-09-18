@@ -17,6 +17,14 @@ found here are recorded as ADRs in [docs/decisions](docs/decisions/README.md)
 and as Subsea Cable Proposals in the language repository, indexed by its
 `implementation/CAROUSEL_POC_FINDINGS.md`.
 
+The Vessel accepts a `.vyg` **Voyage Plan**. Under
+[SCP-0004](https://github.com/on-the-ground/subsea_cable_language/blob/docs-vessel-carousel/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md),
+its eventual outward result is a Fully Touchdown Cable—an ordered list of
+grounded leaf content hashes—plus the Root outcome. This POC does not implement
+that result artifact or incremental segment reuse yet; the staged work and its
+non-negotiable boundaries are recorded in
+[docs/VESSEL_PLAN.md](docs/VESSEL_PLAN.md).
+
 ## Language pin
 
 The language is pinned as the `language` git submodule. The conformance tests
@@ -31,12 +39,13 @@ git submodule update --init
 
 | Contract | Revision |
 |---|---|
-| Grammar, conformance corpus, `README.md` semantics, and the design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@807e5a5` (the `language` submodule) |
+| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@70ad902` (the `language` submodule; companion language PR #5) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
 
 | Path | What it is |
 |---|---|
 | [docs/POC_PROFILE.md](docs/POC_PROFILE.md) | Every profile choice this POC makes, and how it maps to open decisions |
+| [docs/VESSEL_PLAN.md](docs/VESSEL_PLAN.md) | Staged product rename, persistent Codebase, voyage artifacts, incremental deduction, and agent MCP plan |
 | [docs/decisions](docs/decisions/README.md) | Implementation ADRs; experimental and blocked paths |
 | `syntax/` | UTF-8 decoding, the conformance preprocessing pass, and a recursive-descent parser following `SubseaCable.g4` |
 | `sema/` | Structural validation and Unit preparation |
@@ -56,7 +65,7 @@ SCP-0002 fixes who owns what. This repository maps those boxes onto packages:
 
 | SCP-0002 box | Here | Owns |
 |---|---|---|
-| Vessel (the whole Consumer Runtime) | this repository, entered through `cmd/subc-poc` | assembling the parts, the run lifecycle, and everything exposed outward |
+| Vessel (the whole Consumer Runtime) | this repository; currently exposed through `cmd/subc-poc`, with MCP and an in-process API planned as peer adapters | assembling the parts, voyage/run lifecycle, and the outward product contract |
 | Frontend | `syntax/`, `sema/` | decoding, parsing, validation, Unit preparation |
 | Codebase + Deduction Ledger | `codebase/` | artifacts, the `Name/Arity` index, revisions, deduction records |
 | Carousel | `carousel/` | demand-time alias resolution, reduction, atomic commits, frontier, lineage, Touchdown publication |
@@ -71,9 +80,11 @@ its binary to `vessel`, and splitting the Scheduler out, is planned as a
 separate change with no behavior difference. Until then, read `runtime/` as
 "control plane", never as "the whole runtime".
 
-The boundary is enforced by tests, not only by prose: the Carousel value port is
-read-only, no Carousel or Codebase method accepts an outcome, and a live leaf
-outcome never reaches the ledger or the artifacts.
+The implemented parts of this boundary are checked by focused tests: the
+Carousel value port is read-only, no Carousel or Codebase method accepts an
+outcome, and a live leaf outcome never reaches the ledger or artifacts. The
+planned package/import guards and persistent-store checks remain work items in
+`docs/VESSEL_PLAN.md`; this README does not claim they already exist.
 
 ## Quick start
 
@@ -81,9 +92,9 @@ Requires Go 1.24 or newer. No third-party modules.
 
 ```sh
 go test ./...
-go run ./cmd/subc-poc check examples/fix.subc
-go run ./cmd/subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.subc
-go run ./cmd/subc-poc run --prefetch 2 --ticks work=2 --concurrency 1 examples/prefetch.subc
+go run ./cmd/subc-poc check examples/fix.vyg
+go run ./cmd/subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.vyg
+go run ./cmd/subc-poc run --prefetch 2 --ticks work=2 --concurrency 1 examples/prefetch.vyg
 ```
 
 `run` prints the normalized trace (`--jsonl` for JSON lines). Anchors without a
@@ -103,7 +114,7 @@ CLI flags:
 ## How a run works
 
 ```text
-run(program)                         Vessel start: commit unit, prepare Root, demand Root
+run(voyage plan)                     Vessel start: commit unit, prepare Root, demand Root
   │
   ├─ pump ──────────────────────────  Scheduler issues explicit demand
   │    └─ Carousel.Replenish          deduce demanded occurrences, then prefetch
@@ -130,7 +141,7 @@ deterministic.
   demand inside the Carousel.
 - The conservative value barrier: an occurrence with an unresolved routed input
   commits no deduction and publishes no Touchdown.
-- Prefetch keeps a Touchdown **set** at a target, with recorded atomic
+- Prefetch keeps a Touchdown **window** at a target, with recorded atomic
   overshoot and reported blocking reasons. Lowering it never discards
   anything.
 - A later attempt never re-deduces. `@policy` stays opaque, ordered
@@ -169,6 +180,8 @@ scenarios 1–3 and 5–11 (scenario 4 is covered with a carrier probe).
 - **Crash/resume and exact replay** from the ledger are not implemented.
 - **Concurrent deduction** (plan Phase 5) is not implemented; the reactor is
   serialized.
+- **Fully Touchdown Cable artifacts, provenance indexes, Outcome Journaling,
+  and incremental segment reuse** from SCP-0004 are planned, not implemented.
 - **Experimental paths:** inline Goal-arrow stages (ADR 0002), artifact value
   capture (ADR 0004), and runtime `NoOutput` diagnostics (ADR 0005) may change
   when their proposals are decided.

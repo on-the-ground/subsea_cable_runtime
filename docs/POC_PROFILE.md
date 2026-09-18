@@ -35,6 +35,7 @@
 | Speculative demand on alias change | R5 | Nothing is withdrawn | — |
 | Scope outcome rules | R6 | `poc-baseline/0`: see below | `runtime.evaluateParent` |
 | Value store owner | R7 — **decided** (SCP-0002) | The Runtime owns the Outcome & Value Store (`Run.Output`); the Carousel reads it only through the one-method `carousel.ValueSource` port; the Codebase has no path that accepts an outcome. Component tests: `runtime/boundary_test.go` | — |
+| Voyage result and incremental reuse | SCP-0004 — **decided**, not implemented | This POC returns the Root outcome and trace only. It does not yet publish a Fully Touchdown Cable, provenance sidecar, dependency fingerprints, or `reusedFrom` records, and it never skips Host evaluation as a reuse optimization | [VESSEL_PLAN.md](VESSEL_PLAN.md) |
 | Policy observation and actions | R9 (open) | No interpreters ship; the registry is empty and every policy fails its scope with `UnknownPolicy` when disclosed. The interpreter interface and action set in `runtime/policy.go` are an **experimental carrier probe** used only by tests. | `runtime/policy.go` |
 | Withholding and cancellation | — | Scheduler operations, not policies: the test double `WithholdFirstDispatch`, and `Run.CancelScope` | `runtime.SchedulerHooks` |
 | Policy stacking | — | Rejected as `PolicyConflict` unless the registry declares the ordered pair. With a declared pair, events go to each policy in source order and actions are concatenated (POC-only rule). | `Registry.AllowPair` |

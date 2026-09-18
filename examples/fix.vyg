@@ -1,5 +1,5 @@
 // The FOR_AGENTS.md "fix the failing test" plan, adapted for the POC.
-// Try: subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.subc
+// Try: subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.vyg
 issue = "TICKET-123"
 
 FixFailingTest = [issue] -> [
