@@ -28,13 +28,13 @@
 | Resource budgets | Carousel 7 | Only a run step budget (`StepBudgetExceeded`) | `runtime.Config.MaxSteps` |
 | Default prefetch | Carousel 8 | `0` in the API and the CLI | — |
 | Completion | Carousel 9 | A run with no timeline event and no dispatchable work ends as `RunStuck` with blocking reasons. `PrefetchExhausted` only means no undeduced candidate remains. | — |
-| Vessel naming | Carousel 10, R8 | Not used in code | — |
+| Vessel naming | Carousel 10, R8 — **decided** (SCP-0002) | Vessel names the whole Runtime only; no component or API is called Vessel, and the Carousel is the only deduction engine | — |
 | Stored-Goal invocation | R1 | Not offered. A run always starts from the source unit's prepared Root. | — |
-| Eager calls in arguments | R3 (Draft SCP) | Rejected (`UnsupportedByProfile`) before a run starts, and again if a lazily resolved artifact contains one | [0006](decisions/0006-argument-position-call-staging.md) |
+| Value-producing call positions | R3 — **decided** (SCP-0003) | A `Goal(...)` or `$anchor(...)` nested in a value expression outside a function leaf is `InvalidStructuralContext` at validation (and again, defensively, in the deduction-time evaluator). A direct `Goal(...)` stage is an ordinary Goal occurrence marked `eager` and demanded when it is exposed (`DemandObserved reason=eager`); its leaves are still dispatched in composition order | [0006](decisions/0006-argument-position-call-staging.md) |
 | Composite reattempt | R4 | Not offered. The Scheduler test double `ReattemptAfterFailure` creates later attempts of leaf evaluation instances only | `runtime.SchedulerHooks` |
 | Speculative demand on alias change | R5 | Nothing is withdrawn | — |
 | Scope outcome rules | R6 | `poc-baseline/0`: see below | `runtime.evaluateParent` |
-| Value store owner | R7 | The Runtime owns it; the Carousel reads it through `carousel.ValueSource` | — |
+| Value store owner | R7 — **decided** (SCP-0002) | The Runtime owns the Outcome & Value Store (`Run.Output`); the Carousel reads it only through the one-method `carousel.ValueSource` port; the Codebase has no path that accepts an outcome. Component tests: `runtime/boundary_test.go` | — |
 | Policy observation and actions | R9 (open) | No interpreters ship; the registry is empty and every policy fails its scope with `UnknownPolicy` when disclosed. The interpreter interface and action set in `runtime/policy.go` are an **experimental carrier probe** used only by tests. | `runtime/policy.go` |
 | Withholding and cancellation | — | Scheduler operations, not policies: the test double `WithholdFirstDispatch`, and `Run.CancelScope` | `runtime.SchedulerHooks` |
 | Policy stacking | — | Rejected as `PolicyConflict` unless the registry declares the ordered pair. With a declared pair, events go to each policy in source order and actions are concatenated (POC-only rule). | `Registry.AllowPair` |
@@ -90,7 +90,6 @@ keyed by `(runId, occurrenceId)`.
 | Structure-valued lookup maps | blocked (`UnsupportedByProfile`) | [0003](decisions/0003-structure-valued-lookup-maps.md) |
 | Top-level values in artifact hashes | experimental | [0004](decisions/0004-artifact-hash-value-closure.md) |
 | Runtime `NoOutput` diagnostics | experimental | [0005](decisions/0005-dynamic-nooutput-errors.md) |
-| Eager `Goal(...)` / value-position `$anchor(...)` outside function leaves | blocked (`UnsupportedByProfile`) | [0006](decisions/0006-argument-position-call-staging.md) (Owner decision R3) |
 
 ## `poc-sha256-canon/1` artifacts
 
@@ -124,7 +123,7 @@ The trace is a POC diagnostic contract. It includes every event in
 `implementation/RUNTIME_CONTRACT.md` §11 that the POC can produce, the Carousel
 plan events, and the orchestration plan §12 additions. `TouchdownPublished`,
 `TouchdownConsumed`, `TouchdownDiscarded`, and `DemandedTouchdownOverTarget`
-carry the SCP-0001 fields (`instance`, `attempt`, `window`, `target`). POC-only
+carry the SCP-0001 fields as typed JSON members (`runId`, `occurrenceId`, `evaluationInstanceId`, `attemptId`, `reason`, `windowCount`, `target`). POC-only
 events: `DeductionBlocked`, `PrefetchExhausted`, `DeductionFailureDeferred`,
 `DeductionFailureSurfaced`, `EvaluationWaiting`, `DispatchWithheld`,
 `AttemptAborted`, `ReattemptScheduled`, `TimerStarted`, `TimerFired`,

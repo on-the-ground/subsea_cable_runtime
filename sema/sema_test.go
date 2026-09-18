@@ -3,6 +3,7 @@ package sema_test
 import (
 	"testing"
 
+	"github.com/on-the-ground/subsea_cable_runtime/codebase"
 	"github.com/on-the-ground/subsea_cable_runtime/diag"
 	"github.com/on-the-ground/subsea_cable_runtime/sema"
 )
@@ -68,12 +69,92 @@ func TestRoutingRules(t *testing.T) {
 	}
 }
 
-func TestUnsupportedConstructsAreFlagged(t *testing.T) {
-	u, err := sema.Check([]byte("C = (x) -> x\nR = [] -> $emit(C(1))\nR[]"), nil)
+// SCP-0003: value-producing calls outside function leaves must be direct
+// structural occurrences.
+func TestValueProducingCallPositions(t *testing.T) {
+	const pre = "C = (x) -> x + 1\nD = [y] -> $d(y)\n"
+	cases := []struct {
+		name, src, want string
+	}{
+		{"nested eager Goal argument", pre + "R = [x] -> D[C(x)]\nR[1]", "InvalidStructuralContext"},
+		{"nested Anchor argument", pre + "R = [x] -> D[$f(x)]\nR[1]", "InvalidStructuralContext"},
+		{"operator operand", pre + "R = [x] -> D[x + C(1)]\nR[1]", "InvalidStructuralContext"},
+		{"short-circuit operand", pre + "R = [x] -> D[false && C(1)]\nR[1]", "InvalidStructuralContext"},
+		{"policy argument", pre + "R = [x] -> @p(C(x)) D[x]\nR[1]", "InvalidStructuralContext"},
+		{"lookup key", pre + "m = {a: 1}\nR = [x] -> D[m[C(x)]]\nR[1]", "InvalidStructuralContext"},
+		{"value map", pre + "R = [x] -> D[{a: $f(x)}]\nR[1]", "InvalidStructuralContext"},
+		{"top-level value", pre + "v = C(1)\nR = [] -> D[v]\nR[]", "InvalidStructuralContext"},
+		{"Anchor argument", pre + "R = [] -> $emit(C(1))\nR[]", "InvalidStructuralContext"},
+		{"Root argument", pre + "D[C(1)]", "InvalidStructuralContext"},
+		{"direct body", pre + "R = [x] -> C(x)\nR[1]", ""},
+		{"serial stage", pre + "R = [x] -> [C(x), [v] -> D[v]]\nR[1]", ""},
+		{"parallel element", pre + "R = [x] -> {C(x), $f(x)}\nR[1]", ""},
+		{"resolving-map branch", pre + "R = [x] -> {left: C(x), right: $f(x)}\nR[1]", ""},
+		{"policy on a direct call", pre + "R = [x] -> [@p C(x), D]\nR[1]", ""},
+		{"primitive argument", pre + "R = [x] -> D[x + 1]\nR[1]", ""},
+		{"nested Anchor in a function leaf", "F = (x) -> $g($h(x))\nF[1]", ""},
+		{"Goal call in a function leaf", pre + "F = (x) -> C(x)\nF[1]", "InvalidStructuralContext"},
+		{"static destructure on a direct call", "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf(values)\nR[]", "DestructureMismatch"},
+		// The statically evident mismatch does not depend on the suffix.
+		{"static destructure on a deferred reference", "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf[values]\nR[]", "DestructureMismatch"},
+		{"static destructure on the Root", "values = {x: 1}\nLeaf = ({x, y}) -> $l(x)\nLeaf[values]", "DestructureMismatch"},
+		{"matching destructure is accepted", "values = {x: 1, y: 2}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf[values]\nR[]", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := kinds(t, c.src)
+			if c.want == "" {
+				if len(got) > 0 {
+					t.Fatalf("unexpected %v", got)
+				}
+				return
+			}
+			for _, d := range got {
+				if d.Kind != c.want {
+					t.Fatalf("want only %s, got %v", c.want, got)
+				}
+			}
+			if !got.Has(c.want) {
+				t.Fatalf("want %s, got %v", c.want, got.Kinds())
+			}
+		})
+	}
+}
+
+func TestStructureLookupIsFlaggedAsUnsupported(t *testing.T) {
+	u, err := sema.Check([]byte("routes = {a: A[]}\nA = [] -> $a\nR = [k] -> routes[k]\nR[\"a\"]"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(u.Unsupported) == 0 {
-		t.Fatal("eager calls and value-position Anchors must be flagged for the POC")
+		t.Fatal("structure-valued lookup maps must be flagged for the POC")
+	}
+}
+
+// A hash-qualified reference names a stored artifact whose parameters may
+// differ from a local definition of the same Name/Arity. Validation cannot
+// read them, so it must not judge the destructure from the local definition;
+// deduction reports the mismatch instead.
+func TestHashQualifiedReferenceSkipsStaticDestructure(t *testing.T) {
+	cb := codebase.New()
+	stored, err := sema.Check([]byte("Leaf = (m) -> $l(m)\nLeaf[1]"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arts, _, err := cb.CommitUnit(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := arts[0].Hash[:8]
+
+	// The local Leaf/1 destructures {x, y}; the pinned artifact does not.
+	src := "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf#" + prefix + "[values]\nR[]"
+	if _, err := sema.Check([]byte(src), cb); err != nil {
+		t.Fatalf("a hash-qualified reference must not be judged by the local definition: %v", err)
+	}
+	// The same reference without the hash is judged locally and fails.
+	local := "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf[values]\nR[]"
+	if got := kinds(t, local); !got.Has("DestructureMismatch") {
+		t.Fatalf("want DestructureMismatch, got %v", got.Kinds())
 	}
 }

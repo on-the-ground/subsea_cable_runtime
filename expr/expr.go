@@ -90,8 +90,9 @@ type AnchorCaller func(call *syntax.Anchor, args []value.Value) (value.Output, e
 // Evaluator evaluates value expressions.
 type Evaluator struct {
 	Prim Primitives
-	// Anchors is nil during deduction: value-position Anchor calls are then
-	// refused (their staging is unresolved, see Owner decision R3).
+	// Anchors is nil during deduction: a value-position Anchor call is then
+	// refused. Validation already rejects it outside function leaves
+	// (SCP-0003); this guards artifacts that bypassed validation.
 	Anchors AnchorCaller
 	Phase   diag.Phase
 }
@@ -187,8 +188,8 @@ func (e *Evaluator) Eval(x syntax.Expr, env Env) (value.Value, error) {
 		return e.evalName(n, env)
 	case *syntax.Anchor:
 		if e.Anchors == nil {
-			return value.Value{}, e.err("UnsupportedByProfile", x,
-				"value-position Anchor call $%s during deduction: staging is unresolved (Owner decision R3)", n.Ident)
+			return value.Value{}, diag.New("InvalidStructuralContext", diag.Validation, diag.At(x.Pos()),
+				"Anchor call $%s nested in a value expression outside a function leaf (SCP-0003)", n.Ident)
 		}
 		args, err := e.EvalAll(n.Args, env)
 		if err != nil {
@@ -241,8 +242,8 @@ func (e *Evaluator) evalName(n *syntax.Name, env Env) (value.Value, error) {
 		return e.resolve(n, env)
 	case syntax.CallSuffix:
 		if upper {
-			return value.Value{}, e.err("UnsupportedByProfile", n,
-				"eager Goal call %s(...) needs staging that is not specified yet (Owner decision R3)", n.Ident)
+			return value.Value{}, diag.New("InvalidStructuralContext", diag.Validation, diag.At(n.Pos()),
+				"eager Goal call %s(...) nested in a value expression (SCP-0003)", n.Ident)
 		}
 		return value.Value{}, e.err("NotCallable", n, "%s is not callable", n.Ident)
 	default:

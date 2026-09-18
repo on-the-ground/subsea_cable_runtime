@@ -215,6 +215,7 @@ func Validate(prog *syntax.Program, idx Index) (*Unit, diag.List) {
 		} else {
 			c.owner = "root"
 			c.goalRef(n, len(n.Args))
+			c.staticDestructure(n, top)
 			for _, a := range n.Args {
 				c.checkValue(a, top, false)
 			}
@@ -404,9 +405,11 @@ func (c *checker) checkStructure(x syntax.Expr, sc *scope, in inputKind, stage b
 			switch n.Suffix {
 			case syntax.BracketSuffix:
 				c.goalRef(n, len(n.Args))
+				c.staticDestructure(n, sc)
 			case syntax.CallSuffix:
+				// SCP-0003: a direct eager Goal call is a structural occurrence.
 				c.goalRef(n, len(n.Args))
-				c.unsupportedAt(n, "eager Goal call %s(...) (Owner decision R3)", n.Ident)
+				c.staticDestructure(n, sc)
 			default:
 				if !stage {
 					c.add("InvalidStructuralContext", n, "bare Goal %s is only valid as a composition stage", n.Ident)
@@ -560,7 +563,7 @@ func (c *checker) checkValue(x syntax.Expr, sc *scope, fn bool) {
 			c.checkValue(a, sc, fn)
 		}
 		if !fn {
-			c.unsupportedAt(n, "value-position Anchor call $%s outside a function leaf (Owner decision R3)", n.Ident)
+			c.add("InvalidStructuralContext", n, "Anchor call $%s is nested in a value expression; outside a function leaf it must be a direct structural occurrence (SCP-0003)", n.Ident)
 		}
 	case *syntax.Name:
 		c.checkValueName(n, sc, fn)
@@ -597,9 +600,7 @@ func (c *checker) checkValueName(n *syntax.Name, sc *scope, fn bool) {
 			c.add("InvalidStructuralContext", n, "a function leaf body cannot call Goal %s", n.Ident)
 			return
 		}
-		c.goalRef(n, len(n.Args))
-		c.staticDestructure(n, sc)
-		c.unsupportedAt(n, "eager Goal call %s(...) (Owner decision R3)", n.Ident)
+		c.add("InvalidStructuralContext", n, "eager Goal call %s(...) is nested in a value expression; it must be a direct structural occurrence (SCP-0003)", n.Ident)
 	default:
 		if upper {
 			c.add("InvalidStructuralContext", n, "deferred Goal %s[...] is not a value", n.Ident)
@@ -651,9 +652,19 @@ func literalKey(x syntax.Expr) (string, bool) {
 	return "", false
 }
 
-// staticDestructure reports DestructureMismatch for an eager call whose
-// target destructures a statically known argument that lacks a key.
+// staticDestructure reports DestructureMismatch for a Goal reference whose
+// target destructures a statically known argument that lacks a key. The rule
+// does not depend on the suffix: `Leaf[values]` and `Leaf(values)` are checked
+// alike.
+//
+// A hash-qualified reference is skipped. It names a stored artifact, which may
+// have different parameters from a local definition of the same Name/Arity,
+// and validation cannot read the pinned artifact's parameters. Deduction
+// reports the mismatch instead.
 func (c *checker) staticDestructure(n *syntax.Name, sc *scope) {
+	if n.Hash != "" {
+		return
+	}
 	def := c.goals[n.Ident][len(n.Args)]
 	if def == nil || len(n.Args) != 1 {
 		return

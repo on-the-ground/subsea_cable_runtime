@@ -6,7 +6,7 @@
 - Runtime profile: `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1`
 - Supersedes: —
 - Related experiment: Carousel POC (this repository)
-- Related SCP: [SCP-0001](https://github.com/on-the-ground/subsea_cable_language/blob/carousel-poc/proposals/0001-touchdown-consumption-and-window-counting.md) (Accepted)
+- Related SCP: [SCP-0001](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/0001-touchdown-consumption-and-window-counting.md) (Accepted)
 - Owner decision required: yes
 - Affected path frozen at: — (implemented)
 
