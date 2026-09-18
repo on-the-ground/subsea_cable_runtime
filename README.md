@@ -39,7 +39,7 @@ git submodule update --init
 
 | Contract | Revision |
 |---|---|
-| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@70ad902` (the `language` submodule; companion language PR #5) |
+| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@7a30f91` (the `language` submodule; companion language PR #5) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
 
 | Path | What it is |

@@ -64,10 +64,13 @@ VoyageResult
   provenanceRef
 ```
 
-`touchdownHashes` is a flat ordered list. Order follows committed structural
-occurrence order; parallel children retain authored order. Duplicate occurrences
-remain duplicate entries even when they have the same hash. Scheduler dispatch
-or Host completion order never changes the list.
+`touchdownHashes` is a flat ordered list of grounded evaluation-instance
+descriptors. Order is lexicographic by stable structural occurrence path; each
+reduction assigns child ordinals from authored result order, so parallel
+children retain authored order. Structural sharing does not collapse instances
+reached through distinct occurrences or argument tuples. Duplicate content
+remains duplicate entries with the same hash. Deduction, Scheduler dispatch,
+and Host completion timing never change the list.
 
 Each item hash identifies grounded structural work. It includes the selected
 artifact and artifact-local leaf path, leaf kind or Anchor identifier,

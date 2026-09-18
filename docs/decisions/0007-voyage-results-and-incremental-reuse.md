@@ -28,9 +28,11 @@ evaluation.
 
 ## Proposed decision
 
-1. Store the outward Cable as a canonical ordered list of grounded descriptor
-   hashes. Preserve duplicate occurrences. Derive order from committed
-   structural occurrence order, not execution timing.
+1. Store the outward Cable as a canonical ordered list of grounded
+   evaluation-instance descriptor hashes. Preserve duplicates and do not
+   collapse instances merely because they share one structural Goal node.
+   Derive order lexicographically from stable structural occurrence paths and
+   authored child ordinals, not deduction or execution timing.
 2. Keep run IDs, occurrence IDs, positions, lineages, attempts, timestamps, and
    outcomes in a provenance sidecar rather than item identity.
 3. Build a bidirectional index between intermediate deduction occurrences and
@@ -78,4 +80,3 @@ stable-slot construction, and value digest encoding are versioned and that no
 Host-result cache is smuggled into structural reuse. Any pressure to change the
 portable list shape, deduction identity, lazy alias timing, or component
 ownership returns to the language repository as an SCP.
-
