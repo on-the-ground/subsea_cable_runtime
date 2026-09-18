@@ -27,7 +27,7 @@ git submodule update --init
 
 | Contract | Revision |
 |---|---|
-| Grammar, conformance corpus, `README.md` semantics, and the design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@5f17ba5` (the `language` submodule) |
+| Grammar, conformance corpus, `README.md` semantics, and the design documents followed (`implementation/CAROUSEL_ENGINE_PLAN.md`, `implementation/RUNTIME_ORCHESTRATION_PLAN.md`, `proposals/0001-*`) | `on-the-ground/subsea_cable_language@807e5a5` (the `language` submodule) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
 
 | Path | What it is |
