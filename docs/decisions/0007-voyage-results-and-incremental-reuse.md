@@ -34,12 +34,16 @@ evaluation.
    Derive order lexicographically from stable structural occurrence paths and
    authored child ordinals, not deduction or execution timing.
 2. Keep run IDs, occurrence IDs, positions, lineages, attempts, timestamps, and
-   outcomes in a provenance sidecar rather than item identity.
+   outcomes in a provenance sidecar rather than item identity. Ordered policy
+   metadata is also excluded from policy-erased structural item identity and
+   retained in occurrence provenance and Scheduler inputs.
 3. Build a bidirectional index between intermediate deduction occurrences and
    Cable positions/ranges.
 4. Key alias observations by stable structural reference slots. Never collapse
    them into a `Name/Arity -> hash` map and never use run-local occurrence IDs
-   as portable slot identity.
+   as portable slot identity. Record both selected `ArtifactHash` and
+   `StructureHash`; compare the latter for structural compatibility while
+   committing the new exact artifact selection.
 5. Record stable value-slot digests for reductions that depend on routed or
    Host-derived values.
 6. Reuse creates new immutable deduction records and records `reusedFrom`; it
@@ -56,6 +60,7 @@ evaluation.
 | Put lineage and occurrence identity in every Touchdown hash | Moving an unchanged subtree destroys content reuse and couples identity to one run |
 | Use `artifact hash + arguments` as the reuse key | Misses lazy descendant alias observations and value-dependent reductions |
 | Use one `Name/Arity -> hash` dependency map | The same name may resolve differently at separate slots in one voyage |
+| Include policy metadata in structural item hashes | Violates policy erasure and prevents reuse when topology and leaf content are unchanged |
 | Reuse old deduction records directly | Rewrites occurrence identity and makes old voyages unauditable |
 | Treat structural equality as permission to skip the Host | Can silently suppress effects or reuse stale outcomes |
 | Return a set of hashes | Loses authored order and duplicate occurrences |

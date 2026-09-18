@@ -73,10 +73,11 @@ remains duplicate entries with the same hash. Deduction, Scheduler dispatch,
 and Host completion timing never change the list.
 
 Each item hash identifies grounded structural work. It includes the selected
-artifact and artifact-local leaf path, leaf kind or Anchor identifier,
-canonical arguments, ordered policies, and the applicable encoding/profile
-identity. It excludes run IDs, occurrence IDs, list positions, lineages,
-timestamps, attempts, and outcomes.
+policy-erased `StructureHash` and artifact-local leaf path, leaf kind or Anchor
+identifier, canonical arguments, and the applicable encoding/profile identity.
+It excludes run IDs, occurrence IDs, list positions, lineages, ordered
+policies, timestamps, attempts, and outcomes. Exact `ArtifactHash` selections
+and policies remain in deduction/provenance records.
 
 The provenance sidecar provides both directions:
 
@@ -96,17 +97,24 @@ with `reusedFrom`.
 
 A segment is structurally reusable only when all relevant inputs match:
 
-- selected artifact and canonical arguments;
+- selected policy-erased structural identity and canonical arguments;
 - language, value encoding, primitive, and artifact profiles;
-- ordered policy-bearing structure;
 - every alias observation at a stable reference slot; and
 - every required value observation at a stable value slot.
 
 A plain `Name/Arity -> hash` map is invalid as an alias fingerprint. The same
 name may be observed at different hashes in different occurrences—even during
 one voyage. The portable key is an ordered stable reference slot within the
-candidate segment, paired with requested `Name/Arity`, selected hash, and the
-observed revision. Run-local occurrence IDs are provenance, not stable slots.
+candidate segment, paired with requested `Name/Arity`, selected `ArtifactHash`,
+selected `StructureHash`, and the observed revision. Structural compatibility
+uses the stable slot, requested name/arity, and `StructureHash`; the full tuple
+remains audit evidence. Run-local occurrence IDs are provenance, not stable
+slots.
+
+A policy-only artifact change may reuse the policy-erased structure while the
+new voyage commits its newly selected `ArtifactHash`, occurrence policies, and
+Scheduler inputs. Policy effects may still cause the voyage to reach a
+different set of leaves.
 
 Structural reuse and outcome reuse are separate. A value-dependent segment may
 be reused only after equal canonical input values are established. Avoiding the
