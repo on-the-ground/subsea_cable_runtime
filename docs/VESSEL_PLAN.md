@@ -141,7 +141,7 @@ never authorizes an effect to be skipped.
 | D8 | Touchdown descriptor and cable-list encoding profile | Runtime ADR 0007 constrained by SCP-0004 | M2 |
 | D9 | Stable reference/value slot representation and reuse index | Runtime ADR 0007; escalate any semantic pressure | M4 |
 | D10 | Outcome Journal authority and effect-reuse policy | Owner decision if portable behavior is proposed | M4 |
-| D11 | Cable membership: published, consumed/first-dispatched, or successful instances; failed/cancelled voyages; empty-list hash | Language owner; SCP-0004 detailed contract | M2 |
+| D11 | Cable membership and empty-list hash | **Decided in SCP-0004:** every `TouchdownPublished` instance remains a member; failed/cancelled voyages return the accumulated Cable; zero members use the canonical framed empty list | M2 |
 
 The `.vyg` extension, ordered Cable shape, provenance separation, and immutable
 reuse records are already owner decisions in SCP-0004; they are not open
@@ -227,17 +227,23 @@ The following tests are gates, not examples:
    `0..11` order and never sorts `10` before `2`.
 5. **Duplicates:** identical grounded content at two occurrences produces the
    same item hash twice in the list and distinct provenance entries.
-6. **Reverse lookup:** every intermediate deduction maps to its contributed
+6. **Membership:** speculative, withheld, discarded, never-dispatched, failed,
+   and cancelled published instances remain in the Cable; unpublished
+   occurrences do not. Failed/cancelled voyages return that Cable separately
+   from their Root outcome.
+7. **Empty Cable:** zero published instances produce the profile-tagged,
+   length-framed zero-item list hash, never an absent or `null` hash.
+8. **Reverse lookup:** every intermediate deduction maps to its contributed
    positions/ranges, and every list position maps back to ancestry and lineages.
-7. **Alias slots:** two references to the same `Name/Arity` resolve at different
+9. **Alias slots:** two references to the same `Name/Arity` resolve at different
    revisions without collapsing in the fingerprint.
-8. **Pure reuse:** an unrelated Goal edit reuses an unchanged structural
+10. **Pure reuse:** an unrelated Goal edit reuses an unchanged structural
    segment and emits new records with `reusedFrom`.
-9. **Value invalidation:** a changed routed value invalidates the dependent
+11. **Value invalidation:** a changed routed value invalidates the dependent
    segment even when its selected artifact is unchanged.
-10. **Effect safety:** structural reuse does not suppress Host invocation without
+12. **Effect safety:** structural reuse does not suppress Host invocation without
    explicit Outcome Journal authorization.
-11. **Boundary:** Carousel uses only its narrow ports; Codebase bytes contain no
+13. **Boundary:** Carousel uses only its narrow ports; Codebase bytes contain no
     Host outcome; Scheduler policy cannot rewrite committed topology.
 
 ## 8. Change protocol

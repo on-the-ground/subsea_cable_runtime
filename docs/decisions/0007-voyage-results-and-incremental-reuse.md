@@ -54,6 +54,14 @@ evaluation.
    evaluation requires a separately designed and authorized Outcome Journal.
 8. Merkle trees, interval indexes, and storage layouts remain implementation
    details. The outward Cable remains the simple ordered hash list.
+9. Cable membership begins at `TouchdownPublished` and is monotonic for the
+   voyage. A member remains present if speculative, withheld, consumed,
+   discarded, never dispatched, failed, or cancelled. Attempt and Root success
+   do not determine membership.
+10. Failed and cancelled voyages return the accumulated Cable separately from
+    their Root outcome. Zero published Touchdowns produce the normal
+    profile-tagged, length-framed zero-item list hash, never an absent or `null`
+    hash.
 
 ## Alternatives rejected
 
@@ -83,13 +91,12 @@ evaluation.
 - Required milestones and acceptance tests are maintained in
   [VESSEL_PLAN.md](../VESSEL_PLAN.md).
 
-## Unresolved implementation gate
+## Remaining implementation gates
 
-SCP-0004 must decide whether Cable membership means every published
-Touchdown, only consumed/first-dispatched evaluation instances, or only
-successful instances. That decision also fixes failed and cancelled voyages
-and the canonical empty-list hash. ADR 0007 cannot be accepted and voyage
-artifact implementation cannot begin until that language decision is recorded.
+F9, descriptor encoding, stable-slot construction, persistent provenance, and
+Outcome Journal authority remain gated as described above. Cable membership,
+failed/cancelled voyage behavior, and the empty-list representation are no
+longer open: SCP-0004 fixes them at publication-time membership.
 
 ## Review gate
 
