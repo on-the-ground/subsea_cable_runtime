@@ -36,6 +36,6 @@ jobs:
 
       - name: Run examples
         run: |
-          go run ./cmd/subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.subc
-          go run ./cmd/subc-poc run --prefetch 2 --ticks work=2 --concurrency 1 examples/prefetch.subc
-          go run ./cmd/subc-poc run examples/eager.subc
+          go run ./cmd/subc-poc run --prefetch 1 --fail editFiles=1 --reattempt editFiles=2 examples/fix.vyg
+          go run ./cmd/subc-poc run --prefetch 2 --ticks work=2 --concurrency 1 examples/prefetch.vyg
+          go run ./cmd/subc-poc run examples/eager.vyg

@@ -85,7 +85,7 @@ SCP-0003 decided it:
 - `sema/sema_test.go` `TestHashQualifiedReferenceSkipsStaticDestructure`.
 - `carousel/carousel_test.go` `TestEagerCallIsDemandedOnExposure`.
 - `runtime/runtime_test.go` `TestEagerGoalStageRoutesItsValue`.
-- Conformance cases `NestedGoalCall.subc` and `NestedAnchorCall.subc`.
+- Conformance cases `NestedGoalCall.vyg` and `NestedAnchorCall.vyg`.
 - `conformancetest` `TestSemanticCasesReportOnlyTheExpectedKind`, which now
   reads expected kinds from `cases.tsv`.
 

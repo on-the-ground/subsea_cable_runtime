@@ -12,3 +12,4 @@ Subsea Cable Proposal in the language repository.
 | [0004](0004-artifact-hash-value-closure.md) | Top-level values in artifact hashes | proposed | experimental |
 | [0005](0005-dynamic-nooutput-errors.md) | Runtime NoOutput where a value is required | proposed | experimental |
 | [0006](0006-argument-position-call-staging.md) | Value-producing call positions (R3) | accepted (SCP-0003) | implemented |
+| [0007](0007-voyage-results-and-incremental-reuse.md) | Voyage result identity, provenance, and incremental reuse | proposed (SCP-0004 contract accepted) | frozen / planned |

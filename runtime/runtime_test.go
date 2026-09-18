@@ -381,7 +381,7 @@ func TestPolicyErasureKeepsReductionResults(t *testing.T) {
 }
 
 func TestFixExampleEndToEnd(t *testing.T) {
-	src, err := os.ReadFile("../examples/fix.subc")
+	src, err := os.ReadFile("../examples/fix.vyg")
 	if err != nil {
 		t.Fatal(err)
 	}
