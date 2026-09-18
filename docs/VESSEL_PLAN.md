@@ -1,8 +1,10 @@
 # Vessel implementation plan
 
-> **Status:** implementation plan, not proof of completed behavior. Language
-> semantics come from the pinned Subsea Cable revision. Runtime design choices
-> require ADRs; language-level changes require an SCP and owner decision.
+> **Status:** living implementation plan, not a contract or proof of completed
+> behavior. Accepted language SCPs and Runtime ADRs override this document;
+> operational milestone status belongs in the repository issue tracker.
+> Language semantics come from the pinned Subsea Cable revision. Runtime design
+> choices require ADRs; language-level changes require an SCP and owner decision.
 
 This plan turns the current Carousel POC into an agent-addressable **Vessel**:
 the assembled Consumer Runtime that accepts a `.vyg` Voyage Plan and eventually
@@ -65,9 +67,11 @@ VoyageResult
 ```
 
 `touchdownHashes` is a flat ordered list of grounded evaluation-instance
-descriptors. Order is lexicographic by stable structural occurrence path; each
-reduction assigns child ordinals from authored result order, so parallel
-children retain authored order. Structural sharing does not collapse instances
+descriptors. Order compares the root-to-leaf vector of non-negative child
+ordinals lexicographically, with each ordinal compared numerically rather than
+as a decimal string. Thus `[0, 2]` precedes `[0, 10]`; implementations never
+sort dotted occurrence-ID strings. Each reduction assigns child ordinals from
+authored result order, so parallel children retain authored order. Structural sharing does not collapse instances
 reached through distinct occurrences or argument tuples. Duplicate content
 remains duplicate entries with the same hash. Deduction, Scheduler dispatch,
 and Host completion timing never change the list.
@@ -137,6 +141,7 @@ never authorizes an effect to be skipped.
 | D8 | Touchdown descriptor and cable-list encoding profile | Runtime ADR 0007 constrained by SCP-0004 | M2 |
 | D9 | Stable reference/value slot representation and reuse index | Runtime ADR 0007; escalate any semantic pressure | M4 |
 | D10 | Outcome Journal authority and effect-reuse policy | Owner decision if portable behavior is proposed | M4 |
+| D11 | Cable membership: published, consumed/first-dispatched, or successful instances; failed/cancelled voyages; empty-list hash | Language owner; SCP-0004 detailed contract | M2 |
 
 The `.vyg` extension, ordered Cable shape, provenance separation, and immutable
 reuse records are already owner decisions in SCP-0004; they are not open
@@ -218,19 +223,21 @@ The following tests are gates, not examples:
    old hash and undeduced occurrences observe the new hash.
 3. **Cable order:** parallel Host completions are deliberately reversed while
    the Cable list remains in structural order.
-4. **Duplicates:** identical grounded content at two occurrences produces the
+4. **Numeric ordinal order:** a 12-branch parallel preserves authored
+   `0..11` order and never sorts `10` before `2`.
+5. **Duplicates:** identical grounded content at two occurrences produces the
    same item hash twice in the list and distinct provenance entries.
-5. **Reverse lookup:** every intermediate deduction maps to its contributed
+6. **Reverse lookup:** every intermediate deduction maps to its contributed
    positions/ranges, and every list position maps back to ancestry and lineages.
-6. **Alias slots:** two references to the same `Name/Arity` resolve at different
+7. **Alias slots:** two references to the same `Name/Arity` resolve at different
    revisions without collapsing in the fingerprint.
-7. **Pure reuse:** an unrelated Goal edit reuses an unchanged structural
+8. **Pure reuse:** an unrelated Goal edit reuses an unchanged structural
    segment and emits new records with `reusedFrom`.
-8. **Value invalidation:** a changed routed value invalidates the dependent
+9. **Value invalidation:** a changed routed value invalidates the dependent
    segment even when its selected artifact is unchanged.
-9. **Effect safety:** structural reuse does not suppress Host invocation without
+10. **Effect safety:** structural reuse does not suppress Host invocation without
    explicit Outcome Journal authorization.
-10. **Boundary:** Carousel uses only its narrow ports; Codebase bytes contain no
+11. **Boundary:** Carousel uses only its narrow ports; Codebase bytes contain no
     Host outcome; Scheduler policy cannot rewrite committed topology.
 
 ## 8. Change protocol

@@ -6,7 +6,7 @@
 - Runtime profile: future; not implemented by `poc-baseline/0`
 - Supersedes: —
 - Related experiment: Carousel POC (this repository)
-- Related SCP: [SCP-0004 — Voyage Plans and Fully Touchdown Cable artifacts](https://github.com/on-the-ground/subsea_cable_language/blob/docs-vessel-carousel/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md) (Accepted in companion PR)
+- Related SCP: [SCP-0004 — Voyage Plans and Fully Touchdown Cable artifacts](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md) (under discussion; link becomes valid after the companion Language PR merges)
 - Owner decision required: no for the SCP-0004 language contract; yes if an
   implementation choice would extend portable semantics
 - Affected path frozen at: voyage-result persistence and incremental reuse are
@@ -31,8 +31,10 @@ evaluation.
 1. Store the outward Cable as a canonical ordered list of grounded
    evaluation-instance descriptor hashes. Preserve duplicates and do not
    collapse instances merely because they share one structural Goal node.
-   Derive order lexicographically from stable structural occurrence paths and
-   authored child ordinals, not deduction or execution timing.
+   Compare root-to-leaf vectors of non-negative child ordinals
+   lexicographically, comparing ordinal segments numerically rather than as
+   decimal strings. Never sort serialized dotted occurrence IDs. Derive the
+   ordinals from authored child order, not deduction or execution timing.
 2. Keep run IDs, occurrence IDs, positions, lineages, attempts, timestamps, and
    outcomes in a provenance sidecar rather than item identity. Ordered policy
    metadata is also excluded from policy-erased structural item identity and
@@ -67,6 +69,9 @@ evaluation.
 
 ## Consequences
 
+- F9 (artifact top-level value closure) is a prerequisite for portable Cable
+  identity. Any Cable produced before F9 is decided is experimental and must
+  not be used for cross-version reuse decisions.
 - Persistent Codebase, decodable artifacts, plan manifests, and immutable
   ledgers precede incremental reuse.
 - Pure structural segments can be reused without an Outcome Journal once all
@@ -77,6 +82,14 @@ evaluation.
   until the complete result/provenance contract is implemented.
 - Required milestones and acceptance tests are maintained in
   [VESSEL_PLAN.md](../VESSEL_PLAN.md).
+
+## Unresolved implementation gate
+
+SCP-0004 must decide whether Cable membership means every published
+Touchdown, only consumed/first-dispatched evaluation instances, or only
+successful instances. That decision also fixes failed and cancelled voyages
+and the canonical empty-list hash. ADR 0007 cannot be accepted and voyage
+artifact implementation cannot begin until that language decision is recorded.
 
 ## Review gate
 

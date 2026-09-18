@@ -18,12 +18,13 @@ and as Subsea Cable Proposals in the language repository, indexed by its
 `implementation/CAROUSEL_POC_FINDINGS.md`.
 
 The Vessel accepts a `.vyg` **Voyage Plan**. Under
-[SCP-0004](https://github.com/on-the-ground/subsea_cable_language/blob/docs-vessel-carousel/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md),
+[SCP-0004](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md),
 its eventual outward result is a Fully Touchdown Cable—an ordered list of
 grounded leaf content hashes—plus the Root outcome. This POC does not implement
 that result artifact or incremental segment reuse yet; the staged work and its
 non-negotiable boundaries are recorded in
-[docs/VESSEL_PLAN.md](docs/VESSEL_PLAN.md).
+[docs/VESSEL_PLAN.md](docs/VESSEL_PLAN.md). The SCP link becomes valid after
+the companion Language PR merges.
 
 ## Language pin
 
@@ -39,7 +40,7 @@ git submodule update --init
 
 | Contract | Revision |
 |---|---|
-| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@4265c6b` (the `language` submodule; companion language PR #5) |
+| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@86997d3` (the `language` submodule; companion language PR #5) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
 
 | Path | What it is |
