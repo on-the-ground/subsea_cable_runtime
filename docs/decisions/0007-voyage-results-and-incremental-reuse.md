@@ -6,7 +6,7 @@
 - Runtime profile: future; not implemented by `poc-baseline/0`
 - Supersedes: —
 - Related experiment: Carousel POC (this repository)
-- Related SCP: [SCP-0004 — Voyage Plans and Fully Touchdown Cable artifacts](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md) (under discussion; link becomes valid after the companion Language PR merges)
+- Related SCP: [SCP-0004 — Voyage Plans and Fully Touchdown Cable artifacts](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/0004-voyage-plans-and-touchdown-cable-artifacts.md) (Accepted; the link becomes valid after the companion Language PR merges)
 - Owner decision required: no for the SCP-0004 language contract; yes if an
   implementation choice would extend portable semantics
 - Affected path frozen at: voyage-result persistence and incremental reuse are

@@ -23,8 +23,12 @@ its eventual outward result is a Fully Touchdown Cable—an ordered list of
 grounded leaf content hashes—plus the Root outcome. This POC does not implement
 that result artifact or incremental segment reuse yet; the staged work and its
 non-negotiable boundaries are recorded in
-[docs/VESSEL_PLAN.md](docs/VESSEL_PLAN.md). The SCP link becomes valid after
-the companion Language PR merges.
+[docs/VESSEL_PLAN.md](docs/VESSEL_PLAN.md).
+
+The pin above does not yet include SCP-0004; moving it, and with it the
+`.vyg` conformance corpus, is a follow-up once the companion language pull
+request merges. The SCP link above becomes valid at that point. This pull
+request changes documents only, so it does not wait for that move.
 
 ## Language pin
 
@@ -40,7 +44,7 @@ git submodule update --init
 
 | Contract | Revision |
 |---|---|
-| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@49cd2ba` (the `language` submodule; companion language PR #5) |
+| Grammar, conformance corpus, `README.md` semantics, and accepted SCPs | `on-the-ground/subsea_cable_language@807e5a5` (the `language` submodule) |
 | Profiles | `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1` |
 
 | Path | What it is |
