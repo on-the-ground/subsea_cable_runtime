@@ -60,6 +60,8 @@ SCP-0004 fixes the portable outward shape:
 ```text
 VoyageResult
   voyagePlanHash
+  schedulerProfile
+  deductionControlRef
   touchdownCableHash
   touchdownHashes[]
   rootOutcome
@@ -75,6 +77,12 @@ authored result order, so parallel children retain authored order. Structural sh
 reached through distinct occurrences or argument tuples. Duplicate content
 remains duplicate entries with the same hash. Deduction, Scheduler dispatch,
 and Host completion timing never change the list.
+
+`schedulerProfile` identifies the Scheduler semantics for the voyage.
+`deductionControlRef` points to canonical provenance for the demand mode,
+explicit demand sequence, initial prefetch target, and every later prefetch
+reconfiguration. They explain why the same plan may ground a different Cable
+without contaminating individual Touchdown content hashes.
 
 Each item hash identifies grounded structural work. It includes the selected
 policy-erased `StructureHash` and artifact-local leaf path, leaf kind or Anchor
@@ -125,6 +133,12 @@ be reused only after equal canonical input values are established. Avoiding the
 Host evaluation that would produce those values additionally requires an
 authorized Outcome Journal or cache policy. A matching Touchdown hash by itself
 never authorizes an effect to be skipped.
+
+Publication-time membership intentionally records all structure grounded by
+the voyage, including unused speculative Touchdowns. Cable hashes are therefore
+comparable only under the same Scheduler profile and deduction-control history,
+not merely the same Voyage Plan. This is an explicit consequence of representing
+grounded structure rather than only first-dispatched work.
 
 ## 5. Required decisions
 
@@ -225,25 +239,28 @@ The following tests are gates, not examples:
    the Cable list remains in structural order.
 4. **Numeric ordinal order:** a 12-branch parallel preserves authored
    `0..11` order and never sorts `10` before `2`.
-5. **Duplicates:** identical grounded content at two occurrences produces the
+5. **Prefetch is observable:** the same plan under prefetch `0` and `2` may
+   produce different Cables when the larger window publishes unused speculative
+   leaves; each result records a different deduction-control reference.
+6. **Duplicates:** identical grounded content at two occurrences produces the
    same item hash twice in the list and distinct provenance entries.
-6. **Membership:** speculative, withheld, discarded, never-dispatched, failed,
+7. **Membership:** speculative, withheld, discarded, never-dispatched, failed,
    and cancelled published instances remain in the Cable; unpublished
    occurrences do not. Failed/cancelled voyages return that Cable separately
    from their Root outcome.
-7. **Empty Cable:** zero published instances produce the profile-tagged,
+8. **Empty Cable:** zero published instances produce the profile-tagged,
    length-framed zero-item list hash, never an absent or `null` hash.
-8. **Reverse lookup:** every intermediate deduction maps to its contributed
+9. **Reverse lookup:** every intermediate deduction maps to its contributed
    positions/ranges, and every list position maps back to ancestry and lineages.
-9. **Alias slots:** two references to the same `Name/Arity` resolve at different
+10. **Alias slots:** two references to the same `Name/Arity` resolve at different
    revisions without collapsing in the fingerprint.
-10. **Pure reuse:** an unrelated Goal edit reuses an unchanged structural
+11. **Pure reuse:** an unrelated Goal edit reuses an unchanged structural
    segment and emits new records with `reusedFrom`.
-11. **Value invalidation:** a changed routed value invalidates the dependent
+12. **Value invalidation:** a changed routed value invalidates the dependent
    segment even when its selected artifact is unchanged.
-12. **Effect safety:** structural reuse does not suppress Host invocation without
+13. **Effect safety:** structural reuse does not suppress Host invocation without
    explicit Outcome Journal authorization.
-13. **Boundary:** Carousel uses only its narrow ports; Codebase bytes contain no
+14. **Boundary:** Carousel uses only its narrow ports; Codebase bytes contain no
     Host outcome; Scheduler policy cannot rewrite committed topology.
 
 ## 8. Change protocol

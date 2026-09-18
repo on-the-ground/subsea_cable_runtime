@@ -62,6 +62,10 @@ evaluation.
     their Root outcome. Zero published Touchdowns produce the normal
     profile-tagged, length-framed zero-item list hash, never an absent or `null`
     hash.
+11. `VoyageResult` carries `schedulerProfile` and `deductionControlRef` outside
+    item hashes. The latter addresses canonical provenance for demand mode,
+    explicit demand sequence, initial prefetch target, and every subsequent
+    prefetch reconfiguration.
 
 ## Alternatives rejected
 
@@ -74,6 +78,7 @@ evaluation.
 | Reuse old deduction records directly | Rewrites occurrence identity and makes old voyages unauditable |
 | Treat structural equality as permission to skip the Host | Can silently suppress effects or reuse stale outcomes |
 | Return a set of hashes | Loses authored order and duplicate occurrences |
+| Begin membership at first dispatch | Reduces prefetch sensitivity but makes structural membership depend on Scheduler dispatch and drops committed published structure |
 
 ## Consequences
 
@@ -90,6 +95,9 @@ evaluation.
   until the complete result/provenance contract is implemented.
 - Required milestones and acceptance tests are maintained in
   [VESSEL_PLAN.md](../VESSEL_PLAN.md).
+- Two Cable hashes are comparable only when Scheduler profile and
+  deduction-control provenance are equal, in addition to the structural/value
+  profiles and observations required by SCP-0004.
 
 ## Remaining implementation gates
 
