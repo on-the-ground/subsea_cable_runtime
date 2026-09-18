@@ -215,6 +215,7 @@ func Validate(prog *syntax.Program, idx Index) (*Unit, diag.List) {
 		} else {
 			c.owner = "root"
 			c.goalRef(n, len(n.Args))
+			c.staticDestructure(n, top)
 			for _, a := range n.Args {
 				c.checkValue(a, top, false)
 			}
@@ -404,6 +405,7 @@ func (c *checker) checkStructure(x syntax.Expr, sc *scope, in inputKind, stage b
 			switch n.Suffix {
 			case syntax.BracketSuffix:
 				c.goalRef(n, len(n.Args))
+				c.staticDestructure(n, sc)
 			case syntax.CallSuffix:
 				// SCP-0003: a direct eager Goal call is a structural occurrence.
 				c.goalRef(n, len(n.Args))
@@ -650,9 +652,19 @@ func literalKey(x syntax.Expr) (string, bool) {
 	return "", false
 }
 
-// staticDestructure reports DestructureMismatch for an eager call whose
-// target destructures a statically known argument that lacks a key.
+// staticDestructure reports DestructureMismatch for a Goal reference whose
+// target destructures a statically known argument that lacks a key. The rule
+// does not depend on the suffix: `Leaf[values]` and `Leaf(values)` are checked
+// alike.
+//
+// A hash-qualified reference is skipped. It names a stored artifact, which may
+// have different parameters from a local definition of the same Name/Arity,
+// and validation cannot read the pinned artifact's parameters. Deduction
+// reports the mismatch instead.
 func (c *checker) staticDestructure(n *syntax.Name, sc *scope) {
+	if n.Hash != "" {
+		return
+	}
 	def := c.goals[n.Ident][len(n.Args)]
 	if def == nil || len(n.Args) != 1 {
 		return

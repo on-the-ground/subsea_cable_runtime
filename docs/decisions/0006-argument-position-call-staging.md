@@ -44,7 +44,11 @@ SCP-0003 decided it:
   - It deduces, commits, and publishes Touchdowns like any Goal occurrence, and
     it never receives an implicit upstream argument.
   - Its leaves are dispatched by the Scheduler in composition order, as usual.
-  - Static `DestructureMismatch` is checked on direct calls.
+  - Static `DestructureMismatch` does not depend on the suffix: it is checked
+    for `Goal[...]`, `Goal(...)`, and the Root alike. A hash-qualified
+    reference is skipped, because validation cannot read the pinned artifact's
+    parameters and a local definition of the same `Name/Arity` may differ;
+    deduction reports that mismatch.
 - **Defensive guard** (`expr`): during deduction, an evaluator without a Host
   Anchor gateway reports `InvalidStructuralContext` (phase `validation`) for
   any nested call. This covers artifacts that bypassed validation.
@@ -77,7 +81,8 @@ SCP-0003 decided it:
 
 - `sema/sema_test.go` `TestValueProducingCallPositions`: every forbidden
   position, every valid direct position, function-leaf rules, and static
-  destructure on a direct call.
+  destructure on a direct call, a deferred reference, and the Root.
+- `sema/sema_test.go` `TestHashQualifiedReferenceSkipsStaticDestructure`.
 - `carousel/carousel_test.go` `TestEagerCallIsDemandedOnExposure`.
 - `runtime/runtime_test.go` `TestEagerGoalStageRoutesItsValue`.
 - Conformance cases `NestedGoalCall.subc` and `NestedAnchorCall.subc`.

@@ -3,6 +3,7 @@ package sema_test
 import (
 	"testing"
 
+	"github.com/on-the-ground/subsea_cable_runtime/codebase"
 	"github.com/on-the-ground/subsea_cable_runtime/diag"
 	"github.com/on-the-ground/subsea_cable_runtime/sema"
 )
@@ -94,6 +95,10 @@ func TestValueProducingCallPositions(t *testing.T) {
 		{"nested Anchor in a function leaf", "F = (x) -> $g($h(x))\nF[1]", ""},
 		{"Goal call in a function leaf", pre + "F = (x) -> C(x)\nF[1]", "InvalidStructuralContext"},
 		{"static destructure on a direct call", "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf(values)\nR[]", "DestructureMismatch"},
+		// The statically evident mismatch does not depend on the suffix.
+		{"static destructure on a deferred reference", "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf[values]\nR[]", "DestructureMismatch"},
+		{"static destructure on the Root", "values = {x: 1}\nLeaf = ({x, y}) -> $l(x)\nLeaf[values]", "DestructureMismatch"},
+		{"matching destructure is accepted", "values = {x: 1, y: 2}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf[values]\nR[]", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -123,5 +128,33 @@ func TestStructureLookupIsFlaggedAsUnsupported(t *testing.T) {
 	}
 	if len(u.Unsupported) == 0 {
 		t.Fatal("structure-valued lookup maps must be flagged for the POC")
+	}
+}
+
+// A hash-qualified reference names a stored artifact whose parameters may
+// differ from a local definition of the same Name/Arity. Validation cannot
+// read them, so it must not judge the destructure from the local definition;
+// deduction reports the mismatch instead.
+func TestHashQualifiedReferenceSkipsStaticDestructure(t *testing.T) {
+	cb := codebase.New()
+	stored, err := sema.Check([]byte("Leaf = (m) -> $l(m)\nLeaf[1]"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arts, _, err := cb.CommitUnit(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := arts[0].Hash[:8]
+
+	// The local Leaf/1 destructures {x, y}; the pinned artifact does not.
+	src := "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf#" + prefix + "[values]\nR[]"
+	if _, err := sema.Check([]byte(src), cb); err != nil {
+		t.Fatalf("a hash-qualified reference must not be judged by the local definition: %v", err)
+	}
+	// The same reference without the hash is judged locally and fails.
+	local := "values = {x: 1}\nLeaf = ({x, y}) -> x\nR = [] -> Leaf[values]\nR[]"
+	if got := kinds(t, local); !got.Has("DestructureMismatch") {
+		t.Fatalf("want DestructureMismatch, got %v", got.Kinds())
 	}
 }
