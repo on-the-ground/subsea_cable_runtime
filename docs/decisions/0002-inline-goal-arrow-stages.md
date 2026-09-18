@@ -6,7 +6,7 @@
 - Runtime profile: `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1`
 - Supersedes: —
 - Related experiment: Carousel POC (this repository)
-- Related SCP: [Draft: occurrence kind for inline Goal-arrow stages](https://github.com/on-the-ground/subsea_cable_language/blob/carousel-poc/proposals/draft-inline-goal-arrow-stage-occurrence.md)
+- Related SCP: [Draft: occurrence kind for inline Goal-arrow stages](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/draft-inline-goal-arrow-stage-occurrence.md)
 - Owner decision required: yes
 - Affected path frozen at: experimental (kept running: resolving-map routing depends on it)
 

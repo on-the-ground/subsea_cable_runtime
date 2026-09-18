@@ -402,12 +402,34 @@ func TestFixExampleEndToEnd(t *testing.T) {
 
 func TestStartRefusesProgramsThePOCCannotRun(t *testing.T) {
 	cb := codebase.New()
-	u, err := sema.Check([]byte("C = (x) -> x\nRoot = [] -> [$a, C(1)]\nRoot[]"), cb)
+	u, err := sema.Check([]byte("routes = {a: A[]}\nA = [] -> $a\nRoot = [k] -> routes[k]\nRoot[\"a\"]"), cb)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.Start(runtime.Config{Host: host.NewScripted(), Codebase: cb}, u); err == nil ||
 		!strings.Contains(err.Error(), "UnsupportedByProfile") {
 		t.Fatalf("expected UnsupportedByProfile, got %v", err)
+	}
+}
+
+// SCP-0003: a direct eager Goal call is a visible stage whose value is routed
+// explicitly to the next stage.
+func TestEagerGoalStageRoutesItsValue(t *testing.T) {
+	src := "C = (x) -> x + 1\nD = [y] -> $d(y)\nRoot = [x] -> [C(x), [v] -> D[v]]\nRoot[1]"
+	x := start(t, src, runtime.Config{Prefetch: 0})
+	res := x.finish()
+	if res.Status != host.Succeeded {
+		t.Fatalf("%+v", res.Diag)
+	}
+	var got []string
+	for _, c := range x.h.Calls {
+		if c.Name == "d" {
+			for _, a := range c.Args {
+				got = append(got, a.String())
+			}
+		}
+	}
+	if strings.Join(got, ",") != "2" {
+		t.Fatalf("D received %v, want [2]", got)
 	}
 }

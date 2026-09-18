@@ -6,7 +6,7 @@
 - Runtime profile: `poc-baseline/0`, `poc-rational/0`, `poc-sha256-canon/1`
 - Supersedes: —
 - Related experiment: Carousel POC (this repository)
-- Related SCP: [Draft: errors for NoOutput where a value is required](https://github.com/on-the-ground/subsea_cable_language/blob/carousel-poc/proposals/draft-dynamic-nooutput-errors.md)
+- Related SCP: [Draft: errors for NoOutput where a value is required](https://github.com/on-the-ground/subsea_cable_language/blob/main/proposals/draft-dynamic-nooutput-errors.md)
 - Owner decision required: yes
 - Affected path frozen at: experimental (diagnostic kinds only)
 
